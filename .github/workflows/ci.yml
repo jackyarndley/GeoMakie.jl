@@ -1,4 +1,5 @@
 name: CI
+
 on:
   pull_request:
     branches:
@@ -7,49 +8,119 @@ on:
     branches:
       - master
     tags: '*'
-# needed to allow julia-actions/cache to delete old caches that it has created
+  schedule:
+    # Weekly dependency-freshness run (Monday 03:00 UTC).
+    - cron: '0 3 * * 1'
+
 permissions:
   actions: write
   contents: read
+
 jobs:
   test:
-    name: Tests, Julia ${{ matrix.version }} - ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: Julia ${{ matrix.version }} / ${{ matrix.backend }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         version:
+          - '1.10'
           - '1'
-        os:
-          - ubuntu-latest
-        arch:
-          - x64
+        backend:
+          - cairo
+          - gl
+        include:
+          - version: 'nightly'
+            backend: cairo
+            allow-failure: true
+    continue-on-error: ${{ matrix.allow-failure || false }}
     steps:
-      # Cancel ongoing CI test runs if pushing to branch again before the previous tests
-      # have finished
       - name: Cancel ongoing test runs for previous commits
-        uses: styfle/cancel-workflow-action@0.12.1
+        uses: styfle/cancel-workflow-action@0.13.1
         with:
           access_token: ${{ github.token }}
 
-      # Do tests
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
-          arch: ${{ matrix.arch }}
+          arch: x64
       - uses: julia-actions/cache@v3
-      - uses: julia-actions/julia-buildpkg@v1
-      - uses: julia-actions/julia-runtest@v1
-        env: 
-          DISPLAY: ':0'
-        with: 
-          prefix: xvfb-run -s '-screen 0 1024x768x24'
+      - name: Resolve and instantiate
+        run: |
+          julia --project=. -e '
+            using Pkg
+            Pkg.Registry.add("General")
+            Pkg.Registry.update()
+            Pkg.resolve()
+            Pkg.instantiate()
+            Pkg.status(; outdated = true)'
+      - name: Run tests
+        run: xvfb-run -a -s '-screen 0 1024x768x24' julia --project=. -e 'using Pkg; Pkg.test()'
+        env:
+          GEOMAKIE_TEST_BACKEND: ${{ matrix.backend }}
+        shell: bash
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: test_images
+          name: test_images_${{ matrix.version }}_${{ matrix.backend }}
           path: test_images/
+
+  oldest:
+    name: Oldest supported direct dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.10'
+      - uses: julia-actions/cache@v3
+      - name: Resolve oldest permitted versions and test
+        run: |
+          xvfb-run -a -s '-screen 0 1024x768x24' julia --project=. -e '
+            using Pkg
+            Pkg.Registry.add("General")
+            Pkg.Registry.update()
+            Pkg.activate(; temp = true)
+            Pkg.develop(path = ".")
+            Pkg.add([
+              Pkg.PackageSpec(name = "Makie", version = v"0.24.13"),
+              Pkg.PackageSpec(name = "GeometryOps", version = v"0.1.28"),
+              Pkg.PackageSpec(name = "GeoInterface", version = v"1.5.0"),
+              Pkg.PackageSpec(name = "Geodesy", version = v"1.1.0"),
+              Pkg.PackageSpec(name = "CoordinateTransformations", version = v"0.6.3"),
+            ])
+            Pkg.test("GeoMakie")'
+        shell: bash
+
+  makie:
+    name: Makie ${{ matrix.makie }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        makie:
+          - '0.24.13'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - name: Resolve with Makie ${{ matrix.makie }} and test
+        run: |
+          xvfb-run -a -s '-screen 0 1024x768x24' julia --project=. -e '
+            using Pkg
+            Pkg.Registry.add("General")
+            Pkg.Registry.update()
+            Pkg.activate(; temp = true)
+            Pkg.develop(path = ".")
+            Pkg.add(Pkg.PackageSpec(name = "Makie", version = "${{ matrix.makie }}"))
+            Pkg.test("GeoMakie")'
+        env:
+          GEOMAKIE_TEST_BACKEND: cairo
+        shell: bash
+
   docs:
     name: Build and deploy documentation
     runs-on: ubuntu-latest
@@ -67,6 +138,7 @@ jobs:
         run: |
           xvfb-run -s '-screen 0 1024x768x24' julia --project=docs -e '
             using Pkg
+            Pkg.Registry.add("General")
             Pkg.instantiate()'
         env:
           DISPLAY: ':0'
@@ -77,8 +149,8 @@ jobs:
           prefix: xvfb-run
           install-package: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # If authenticating with GitHub Actions token
-          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }} # If authenticating with SSH deploy key
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
           DISPLAY: ':0'
           DATADEPS_ALWAYS_ACCEPT: 'true'
           RASTERDATASOURCES_PATH: '~/.julia/artifacts/RasterDataSources'
