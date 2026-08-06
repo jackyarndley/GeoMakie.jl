@@ -85,6 +85,9 @@ Implemented in this milestone:
   NaN-separated boundary segments (`test/boundaries.jl`).
 - Label placement modes, local improvement and polar inline stability
   (`test/label_layout.jl`).
+- Axis-parity audit (`docs/src/axis_parity.md`), migration notes
+  (`docs/src/migration.md`) and isolated copied Makie-private compatibility
+  code (`src/geoaxis/makie_compat.jl`).
 - Unified polar-map support: polar, azimuthal, perspective and orthographic
   maps are ordinary `GeoAxis` instances configured with a destination PROJ
   string and geographic limits. There is no separate `GeoPolarAxis` type.

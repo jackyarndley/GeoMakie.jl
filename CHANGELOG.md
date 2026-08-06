@@ -46,6 +46,9 @@ All notable changes to this project are documented in this file.
   now carries tangent, boundary tangent, preferred side and placement class,
   and a deterministic local-improvement pass shifts rejected labels along the
   boundary to keep more of them.
+- Axis-parity audit and migration notes (`docs/src/axis_parity.md`,
+  `docs/src/migration.md`), and copied Makie-private compatibility code
+  isolated in `src/geoaxis/makie_compat.jl`.
 - CI now covers the minimum/latest Julia releases, nightly (allowed failure),
   the oldest permitted direct dependencies, every supported Makie series, and
   both CairoMakie and GLMakie backends.
