@@ -54,6 +54,12 @@ include("geoticks.jl")
 include("projection.jl")
 include("sphere_clip.jl") # sphere-space clipping + adaptive resampling for discontinuities
 
+include("geoaxis/projection.jl") # GeoProjection + ProjectionTraits (GeoAxis v2)
+include("geoaxis/viewport.jl")   # geographic viewport state (GeoAxis v2)
+include("geoaxis/graticule.jl")  # adaptive graticule engine (GeoAxis v2)
+include("geoaxis/labels.jl")     # boundary-aware tick labels (GeoAxis v2)
+include("geoaxis/layout.jl")     # exact decoration protrusions (GeoAxis v2)
+
 include("geoaxis.jl")
 include("contoursplitting_geo.jl") # seam-aware filled contours on a GeoAxis
 include("makie-axis.jl")
