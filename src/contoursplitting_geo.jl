@@ -129,10 +129,12 @@ function _split_geom(geom, dest, source)
     return (polys, group)
 end
 
-# Seam-aware polygon fills: `poly!(ga, geometry)` clips/splits the geometry on the sphere and
-# draws it in the matching frame, so land/coastline fills don't smear across the tear (and stay
-# correct at lon_0 = 180 via Option B). Per-polygon colour vectors are replicated onto pieces.
-function Makie.plot!(axis::GeoAxis, plot::Makie.Poly{<:Tuple{<:AbstractVector{<:GeometryBasics.Polygon}}})
+# Shared implementation for the seam-aware `poly!` intercepts: clip/split the geometry on the
+# sphere and draw it in the matching frame, so land/coastline fills don't smear across the tear
+# (and stay correct at lon_0 = 180 via Option B). Per-polygon colour vectors are replicated
+# onto pieces. The intercept methods below cover single `Polygon`, `MultiPolygon` and vectors
+# of either; `_split_geom` normalises them via `_collect_polys`.
+function _poly_split_plot!(axis::GeoAxis, plot)
     source = pop!(plot.kw, :source, axis.source)
     reset_limits = to_value(pop!(plot.kw, :reset_limits, true))
     # Connect the original plot so its cycle colour / palette resolves from the scene (e.g.
@@ -159,6 +161,15 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Poly{<:Tuple{<:AbstractVector{<:
     reset_limits && Makie.is_open_or_any_parent(axis.scene) && Makie.reset_limits!(axis)
     return plot
 end
+
+Makie.plot!(axis::GeoAxis, plot::Makie.Poly{<:Tuple{<:AbstractVector{<:GeometryBasics.Polygon}}}) =
+    _poly_split_plot!(axis, plot)
+Makie.plot!(axis::GeoAxis, plot::Makie.Poly{<:Tuple{<:GeometryBasics.Polygon}}) =
+    _poly_split_plot!(axis, plot)
+Makie.plot!(axis::GeoAxis, plot::Makie.Poly{<:Tuple{<:GeometryBasics.MultiPolygon}}) =
+    _poly_split_plot!(axis, plot)
+Makie.plot!(axis::GeoAxis, plot::Makie.Poly{<:Tuple{<:AbstractVector{<:GeometryBasics.MultiPolygon}}}) =
+    _poly_split_plot!(axis, plot)
 
 # Seam-aware line contours: run the `contour` recipe, then swap its `Lines` child for the
 # clipped/resampled version (drawn in the matching centred/full frame).
@@ -209,7 +220,12 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Lines{<:Tuple{<:AbstractVector{<
     end
     Makie.lines!(
         axis.scene, splitpts;
-        color = plot.color,
+        # Per-vertex colours cannot survive adaptive resampling (the vertex count changes);
+        # fall back to a single colour, mirroring the `Contour` path. Single colours pass
+        # through unchanged.
+        color = lift(plot.color) do c
+            c isa AbstractVector ? :black : c
+        end,
         colormap = plot.colormap,
         colorrange = plot.colorrange,
         linewidth = plot.linewidth,

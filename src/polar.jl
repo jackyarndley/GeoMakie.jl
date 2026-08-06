@@ -62,6 +62,11 @@ Plot onto it with the usual verbs, passing **geographic** `(lon, lat)` data:
 
 Because this is a Block, only declared attributes are accepted as keywords; for any other `PolarAxis`
 setting, reach the wrapped axis via `gpa.axis`.
+
+!!! note
+    Attributes are read once when the block is constructed. Changing `latcap`, `dest`,
+    `direction`, `theta_0`, ticks or grid styling after construction is currently a no-op;
+    reactive attribute updates are follow-up work.
 """
 Makie.@Block GeoPolarAxis <: Makie.AbstractAxis begin
     @forwarded_layout                  # a GridLayout this block forwards its size/protrusions to

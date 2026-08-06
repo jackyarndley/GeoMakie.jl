@@ -76,7 +76,7 @@ export Proj
 
 export FileIO
 
-export GeoAxis, GeoPolarAxis, automatic
+export GeoAxis, GeoPolarAxis, add_cyclic_point, automatic
 export datalims, datalims!
 @deprecate datalims Makie.autolimits
 @deprecate datalims! Makie.reset_limits!

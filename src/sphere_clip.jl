@@ -463,6 +463,7 @@ end
 
 # --- boundary derivation (d3 reclip): inverse-project the projected outline -----------------
 const _BOUNDARY_CACHE = Dict{String, Vector{Vector{Point2d}}}()
+const _BOUNDARY_CACHE_LOCK = ReentrantLock()
 
 # Oblique squares (spilhaus/guyou/…): trace the projected outline by binary-searching, in many
 # directions from the projected centre, the radius where the inverse stops being finite, then
@@ -1205,7 +1206,12 @@ function _rejoin(segments, compare, start_inside, interpolate!)
         si = !si; c.e = si
     end
     start = subject[1]
+    # Each intersection is visited once, so total work is bounded by the number of
+    # intersections. Cap iterations defensively, mirroring `_cp_rejoin`: a malformed
+    # derived boundary could otherwise spin forever in the entry/exit walk.
+    guard = 0; lim = 4 * (length(subject) + length(clip)) + 64
     while true
+        (guard += 1) > lim && break
         current = start
         while current.v
             current = current.n
@@ -1214,6 +1220,7 @@ function _rejoin(segments, compare, start_inside, interpolate!)
         ring = _Pt[]
         is_subject = true
         while true
+            (guard += 1) > lim && break
             current.v = true; current.o.v = true
             if current.e
                 if is_subject
@@ -1850,16 +1857,22 @@ function clip_strategy(t::Proj.Transformation)
         # corners), but without a "centred" projector for that frame it can't apply Option B, so
         # pole-wrapping polygons smear. d3 avoids both because it owns its projections; matching it
         # needs a native (centred-frame) port. So we keep the no-smear hull and accept round corners.
-        bnd = get!(() -> _oblique_boundary(t), _BOUNDARY_CACHE, def)
+        bnd = lock(_BOUNDARY_CACHE_LOCK) do
+            get!(() -> _oblique_boundary(t), _BOUNDARY_CACHE, def)
+        end
         return (isempty(bnd) || length(bnd[1]) < 4) ? ProjectedClip() : PolygonClip(bnd)
     elseif name in ("igh", "imoll")
         # interrupted Goode/Mollweide: clip against the explicit lobe polygon (d3 clipInterrupted).
         # NB: PROJ's `goode` is the *continuous* homolosine (not interrupted) → AntimeridianClip.
-        bnd = get!(() -> _interrupted_boundary(_IGH_LOBES, lon0), _BOUNDARY_CACHE, def)
+        bnd = lock(_BOUNDARY_CACHE_LOCK) do
+            get!(() -> _interrupted_boundary(_IGH_LOBES, lon0), _BOUNDARY_CACHE, def)
+        end
         return PolygonClip(bnd)
     elseif name in ("igh_o", "imoll_o")
         # oceanic interrupted Goode/Mollweide: same ocean-centred lobe layout, different raw.
-        bnd = get!(() -> _interrupted_boundary(_IGH_O_LOBES, lon0), _BOUNDARY_CACHE, def)
+        bnd = lock(_BOUNDARY_CACHE_LOCK) do
+            get!(() -> _interrupted_boundary(_IGH_O_LOBES, lon0), _BOUNDARY_CACHE, def)
+        end
         return PolygonClip(bnd)
     elseif name in ("merc", "webmerc", "tobmerc")
         # Mercator and its Tobler variant: the antimeridian seam is already correct (it maps to the
