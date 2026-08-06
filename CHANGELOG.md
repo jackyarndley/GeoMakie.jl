@@ -25,6 +25,9 @@ All notable changes to this project are documented in this file.
 - Wrapped longitude intervals (`LongitudeInterval`) and geographic limit APIs:
   `geolimits!(ax, west, east, south, north)` and
   `projected_limits!(ax, xmin, xmax, ymin, ymax)`.
+- Geographic `GeoAxis` linking: `linkxaxes!`, `linkyaxes!`, `linkaxes!` and
+  `unlinkaxes!` share geographic extents between axes while each axis projects
+  independently.
 - CI now covers the minimum/latest Julia releases, nightly (allowed failure),
   the oldest permitted direct dependencies, every supported Makie series, and
   both CairoMakie and GLMakie backends.

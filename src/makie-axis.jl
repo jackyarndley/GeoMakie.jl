@@ -30,7 +30,30 @@ function axis_setup!(axis::GeoAxis)
     notify(axis.layoutobservables.suggestedbbox)
     Makie.register_events!(axis, scene)
     on(scene, axis.limits) do _
-        Makie.reset_limits!(axis)
+        if !axis.block_limit_linking[]
+            _propagate_geographic_limits!(axis)
+        end
+        # Suppress projected propagation while limits are being applied
+        # programmatically; interactive camera changes propagate separately.
+        axis.suppress_projected_propagation[] = true
+        try
+            Makie.reset_limits!(axis)
+        finally
+            axis.suppress_projected_propagation[] = false
+        end
+    end
+    on(scene, axis.targetlimits) do _
+        _propagate_projected_limits!(axis)
+    end
+    on(scene, axis.linked_geographic_limits) do _
+        if !axis.block_limit_linking[]
+            axis.suppress_projected_propagation[] = true
+            try
+                Makie.reset_limits!(axis)
+            finally
+                axis.suppress_projected_propagation[] = false
+            end
+        end
     end
     onany(scene, scene.viewport, targetlimits) do _, _
         Makie.adjustlimits!(axis)
@@ -52,6 +75,14 @@ If one of the components is a tuple of two numbers, those are used directly.
 function Makie.reset_limits!(axis::GeoAxis; xauto = true, yauto = true)
     rawlims = axis.limits[]
     if rawlims isa GeographicLimits
+        gp = geoprojection(to_value(axis.dest), to_value(axis.source))
+        rect = project_geographic_extent(gp, rawlims.x, rawlims.y[1], rawlims.y[2])
+        rect === nothing && return nothing
+        axis.targetlimits[] = rect
+        return nothing
+    end
+    if rawlims isa Tuple && all(isnothing, rawlims) && axis.linked_geographic_limits[] !== nothing
+        rawlims = axis.linked_geographic_limits[]
         gp = geoprojection(to_value(axis.dest), to_value(axis.source))
         rect = project_geographic_extent(gp, rawlims.x, rawlims.y[1], rawlims.y[2])
         rect === nothing && return nothing
@@ -526,10 +557,16 @@ end
 
 Makie.transformation(ax::GeoAxis) = Makie.transformation(ax.scene)
 
+function _current_limit_tuple(ax::GeoAxis)
+    raw = ax.limits[]
+    raw isa GeographicLimits && return (raw.x, raw.y)
+    return Makie.convert_limit_attribute(raw)
+end
+
 function Makie.xlims!(ax::GeoAxis, xlims)
     if xlims isa LongitudeInterval
-        mlims = Makie.convert_limit_attribute(ax.limits[])
-        ax.limits.val = (xlims, mlims[2])
+        mlims = _current_limit_tuple(ax)
+        ax.limits[] = (xlims, mlims[2])
         Makie.reset_limits!(ax; yauto = false)
         return nothing
     end
@@ -546,9 +583,9 @@ function Makie.xlims!(ax::GeoAxis, xlims)
     else
         ax.xreversed[] = false
     end
-    mlims = Makie.convert_limit_attribute(ax.limits[])
+    mlims = _current_limit_tuple(ax)
 
-    ax.limits.val = (xlims, mlims[2])
+    ax.limits[] = (xlims, mlims[2])
     Makie.reset_limits!(ax; yauto=false)
     return nothing
 end
@@ -564,8 +601,8 @@ function Makie.ylims!(ax::GeoAxis, ylims)
     else
         ax.yreversed[] = false
     end
-    mlims = Makie.convert_limit_attribute(ax.limits[])
-    ax.limits.val = (mlims[1], ylims)
+    mlims = _current_limit_tuple(ax)
+    ax.limits[] = (mlims[1], ylims)
     Makie.reset_limits!(ax; xauto=false)
     return nothing
 end

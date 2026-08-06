@@ -20,6 +20,11 @@ Makie.@Block GeoAxis <: Makie.AbstractAxis begin
     scene::Scene
     targetlimits::Observable{Rect2d}
     finallimits::Observable{Rect2d}
+    xaxislinks::Vector{GeoAxis}
+    yaxislinks::Vector{GeoAxis}
+    block_limit_linking::Ref{Bool}
+    suppress_projected_propagation::Ref{Bool}
+    linked_geographic_limits::Observable{Union{Nothing, GeographicLimits}}
     mouseeventhandle::Makie.MouseEventHandle
     scrollevents::Observable{Makie.ScrollEvent}
     keysevents::Observable{Makie.KeysEvent}
@@ -546,6 +551,12 @@ function Makie.initialize_block!(axis::GeoAxis)
     transform_ticks_inv_obs = Observable{Any}(identity; ignore_equal_values=true)
     setfield!(axis, :transform_func, transform_obs)
     setfield!(axis, :inv_transform_func, transform_inv_obs)
+    setfield!(axis, :xaxislinks, GeoAxis[])
+    setfield!(axis, :yaxislinks, GeoAxis[])
+    setfield!(axis, :block_limit_linking, Ref(false))
+    setfield!(axis, :suppress_projected_propagation, Ref(false))
+    setfield!(axis, :linked_geographic_limits,
+        Observable{Union{Nothing, GeographicLimits}}(nothing; ignore_equal_values = true))
 
     # Set up the axis for the Scene, mostly using Makie's existing functionality
     scene = axis_setup!(axis)
@@ -832,24 +843,35 @@ function Makie.initialize_block!(axis::GeoAxis)
             xtick_out = axis.xticksize[] * (1.0 - axis.xtickalign[])
             ytick_out = axis.yticksize[] * (1.0 - axis.ytickalign[])
             if axis.xticksvisible[]
-                add_extent!(ext, :bottom, xtick_out)
-                add_extent!(ext, :top, xtick_out)
+                for p in latspine
+                    n = _spine_outward_normal(p, Point2d(cxp, cyp))
+                    side = abs(n[1]) >= abs(n[2]) ?
+                        (n[1] < 0 ? :left : :right) :
+                        (n[2] < 0 ? :bottom : :top)
+                    add_extent!(ext, side, xtick_out)
+                end
             end
             if axis.yticksvisible[]
-                add_extent!(ext, :left, ytick_out)
-                add_extent!(ext, :right, ytick_out)
+                for p in lonspine
+                    n = _spine_outward_normal(p, Point2d(cxp, cyp))
+                    side = abs(n[1]) >= abs(n[2]) ?
+                        (n[1] < 0 ? :left : :right) :
+                        (n[2] < 0 ? :bottom : :top)
+                    add_extent!(ext, side, ytick_out)
+                end
             end
             if axis.xticklabelsvisible[]
                 for cand in lon_cands
+                    cand.interior && continue
                     off = xtick_out + axis.xticklabelpad[] + widths(cand.bbox_px)[2]
-                    add_extent!(ext, cand.position_px[2] < cyp ? :bottom : :top, off)
+                    add_extent!(ext, cand.side, off)
                 end
             end
             if axis.yticklabelsvisible[]
                 for cand in lat_cands
                     cand.interior && continue   # interior labels reserve no layout space
                     off = ytick_out + axis.yticklabelpad[] + widths(cand.bbox_px)[1]
-                    add_extent!(ext, cand.position_px[1] < cxp ? :left : :right, off)
+                    add_extent!(ext, cand.side, off)
                 end
             end
             # Axis labels reserve space only when visible and non-empty.
