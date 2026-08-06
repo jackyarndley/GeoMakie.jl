@@ -34,6 +34,11 @@ GeoInterface 1.6.2, GeometryBasics 0.5.11, GeoFormatTypes 0.4.5, Geodesy
 1.2.0, CoordinateTransformations 0.6.4, Colors 0.13.1, ImageIO 0.6.9,
 StructArrays 0.7.3, CairoMakie 0.15.13, GLMakie 0.13.13.
 
+`Makie` is declared as `0.24.13` (all later `0.24.x` patches): earlier
+`0.24.x` releases predate the compute-pipeline `map!(plot, inputs, outputs)`
+API the `meshimage` recipe needs and do not propagate `PlotList` child
+transformations on a `GeoAxis`, so they are not genuinely supported.
+
 ### GeoAxis v2 first milestone
 
 - `GeoProjection`/`ProjectionTraits`: internal wrapper around
