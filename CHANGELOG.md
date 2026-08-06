@@ -13,9 +13,15 @@ All notable changes to this project are documented in this file.
   horizon clipping, interrupted/oblique lobe boundaries and seam-aware
   `surface!`/`heatmap!`/`contourf!`/`meshimage!` on a `GeoAxis`.
 - `add_cyclic_point` is now exported.
+- The `GeoTicks` interface is complete: `GeoTicks(6)`,
+  `GeoTicks(spacing = 15)` and `GeoTicks(values = -180:30:180)` are all
+  supported through the Makie tick interface.
 - First stage of the GeoAxis v2 refactor: internal `GeoProjection` metadata,
   a `GeoViewport` state container, an adaptive graticule engine, boundary-aware
   tick-label placement and exact decoration protrusions.
+- CI now covers the minimum/latest Julia releases, nightly (allowed failure),
+  the oldest permitted direct dependencies, every supported Makie series, and
+  both CairoMakie and GLMakie backends.
 
 ### Changed
 
@@ -37,4 +43,3 @@ All notable changes to this project are documented in this file.
   as the polygon-clip rejoin.
 - `GeoPolarAxis` attributes are documented as initialization-only (full
   reactivity is follow-up work).
-

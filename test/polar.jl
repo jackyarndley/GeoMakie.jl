@@ -98,14 +98,16 @@ end
     @test (save(tempname() * ".png", fig); true)          # full render path
 end
 
-@testset "filled artists stay vector in SVG (no rasterised mesh)" begin
-    fig = Figure()
-    gpa = GeoPolarAxis(fig[1, 1]; latcap = -50)
-    poly!(gpa, GeoMakie.land(); color = (:gray70, 0.7), strokecolor = :black, strokewidth = 0.6)
-    path = tempname() * ".svg"
-    save(path, fig)
-    svg = read(path, String)
-    # poly! fills render as vector paths; a regression to mesh-based fills would emit <feImage>/<image>
-    @test !occursin("feImage", svg)
-    @test !occursin("<image", svg)
+if lowercase(get(ENV, "GEOMAKIE_TEST_BACKEND", "cairo")) != "gl"
+    @testset "filled artists stay vector in SVG (no rasterised mesh)" begin
+        fig = Figure()
+        gpa = GeoPolarAxis(fig[1, 1]; latcap = -50)
+        poly!(gpa, GeoMakie.land(); color = (:gray70, 0.7), strokecolor = :black, strokewidth = 0.6)
+        path = tempname() * ".svg"
+        save(path, fig)
+        svg = read(path, String)
+        # poly! fills render as vector paths; a regression to mesh-based fills would emit <feImage>/<image>
+        @test !occursin("feImage", svg)
+        @test !occursin("<image", svg)
+    end
 end
