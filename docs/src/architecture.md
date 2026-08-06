@@ -44,6 +44,9 @@ Current internal modules (`src/geoaxis/`):
   `compute_protrusions` from visible decorations (tick marks, tick labels,
   axis labels, titles, subtitles). Hidden decorations reserve no space, and
   values are only published on material change so the layout loop converges.
+- `longitude.jl` — `LongitudeInterval` for wrapped longitude extents, with
+  width, membership, canonicalisation, seam splitting and projection of
+  geographic extents through the active `GeoProjection`.
 
 ## Status and follow-up work
 
@@ -56,6 +59,8 @@ Implemented in this milestone:
   `add_cyclic_point`).
 - `GeoTicks(n)`, `GeoTicks(spacing = …)`, `GeoTicks(values = …)`.
 - Geometry and layout regression tests (`test/geoaxis_v2.jl`).
+- Wrapped longitude intervals and `geolimits!`/`projected_limits!`
+  (`test/wrapped_limits.jl`).
 - Unified polar-map support: polar, azimuthal, perspective and orthographic
   maps are ordinary `GeoAxis` instances configured with a destination PROJ
   string and geographic limits. There is no separate `GeoPolarAxis` type.

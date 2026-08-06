@@ -50,11 +50,34 @@ respectively, or it is determined automatically from the plots in the axis.
 If one of the components is a tuple of two numbers, those are used directly.
 """
 function Makie.reset_limits!(axis::GeoAxis; xauto = true, yauto = true)
-    mlims = Makie.convert_limit_attribute(axis.limits[])
+    rawlims = axis.limits[]
+    if rawlims isa GeographicLimits
+        gp = geoprojection(to_value(axis.dest), to_value(axis.source))
+        rect = project_geographic_extent(gp, rawlims.x, rawlims.y[1], rawlims.y[2])
+        rect === nothing && return nothing
+        axis.targetlimits[] = rect
+        return nothing
+    end
+    mlims = Makie.convert_limit_attribute(rawlims)
 
     mxlims, mylims = mlims::Tuple{Any, Any}
 
     targetlims = axis.targetlimits[]
+    if mxlims isa LongitudeInterval
+        # `yautolimits` returns *projected* limits; the wrapped-x path needs
+        # geographic latitudes. Use explicit geographic y when given, otherwise
+        # fall back to the full latitude range.
+        ylims = if mylims isa Tuple && all(x -> x isa Real, mylims)
+            convert(Tuple{Float64, Float64}, tuple(mylims...))
+        else
+            (-90.0, 90.0)
+        end
+        gp = geoprojection(to_value(axis.dest), to_value(axis.source))
+        rect = project_geographic_extent(gp, mxlims, ylims[1], ylims[2])
+        rect === nothing && return nothing
+        axis.targetlimits[] = rect
+        return nothing
+    end
     needs_transform = [false, false, false, false] # xmin, xmax, ymin, ymax
     xlims = if isnothing(mxlims) || mxlims[1] === nothing || mxlims[2] === nothing
         l = if xauto
@@ -504,13 +527,22 @@ end
 Makie.transformation(ax::GeoAxis) = Makie.transformation(ax.scene)
 
 function Makie.xlims!(ax::GeoAxis, xlims)
+    if xlims isa LongitudeInterval
+        mlims = Makie.convert_limit_attribute(ax.limits[])
+        ax.limits.val = (xlims, mlims[2])
+        Makie.reset_limits!(ax; yauto = false)
+        return nothing
+    end
     if length(xlims) != 2
         error("Invalid xlims length of $(length(xlims)), must be 2.")
     elseif xlims[1] == xlims[2] && xlims[1] !== nothing
         error("Can't set x limits to the same value $(xlims[1]).")
-    elseif all(x -> x isa Real, xlims) && xlims[1] > xlims[2]
-        xlims = reverse(xlims)
-        ax.xreversed[] = true
+    elseif all(x -> x isa Real, xlims)
+        # Geographic x limits are periodic: west > east denotes a wrapped
+        # interval crossing the antimeridian, and any numeric pair is stored as
+        # a LongitudeInterval so the seam-aware projection path is used.
+        xlims = LongitudeInterval(xlims[1], xlims[2])
+        ax.xreversed[] = false
     else
         ax.xreversed[] = false
     end
@@ -542,6 +574,35 @@ function Makie.limits!(ax::GeoAxis, xlims, ylims)
     Makie.xlims!(ax, xlims)
     Makie.ylims!(ax, ylims)
     return
+end
+
+"""
+    geolimits!(ax::GeoAxis, west, east, south, north)
+
+Set geographic limits in the source CRS. Longitude intervals may cross the
+antimeridian (e.g. `geolimits!(ax, 160, -160, 30, 70)`); the interval is split
+at the projection seam before projection.
+"""
+function geolimits!(ax::GeoAxis, west, east, south, north)
+    ax.limits[] = GeographicLimits(
+        LongitudeInterval(west, east),
+        (Float64(south), Float64(north)))
+    Makie.reset_limits!(ax)
+    return nothing
+end
+
+"""
+    projected_limits!(ax::GeoAxis, xmin, xmax, ymin, ymax)
+
+Set the projected camera rectangle directly (already-projected coordinates,
+for example metres from PROJ). This bypasses geographic limit interpretation.
+"""
+function projected_limits!(ax::GeoAxis, xmin, xmax, ymin, ymax)
+    ax.limits[] = (nothing, nothing)
+    rect = Makie.BBox(xmin, xmax, ymin, ymax)
+    ax.targetlimits[] = rect
+    ax.finallimits[] = rect
+    return nothing
 end
 
 function Makie.hidexdecorations!(ax::GeoAxis; label = true, ticklabels = true, ticks = true,

@@ -22,6 +22,9 @@ All notable changes to this project are documented in this file.
 - First stage of the GeoAxis v2 refactor: internal `GeoProjection` metadata,
   a `GeoViewport` state container, an adaptive graticule engine, boundary-aware
   tick-label placement and exact decoration protrusions.
+- Wrapped longitude intervals (`LongitudeInterval`) and geographic limit APIs:
+  `geolimits!(ax, west, east, south, north)` and
+  `projected_limits!(ax, xmin, xmax, ymin, ymax)`.
 - CI now covers the minimum/latest Julia releases, nightly (allowed failure),
   the oldest permitted direct dependencies, every supported Makie series, and
   both CairoMakie and GLMakie backends.
@@ -43,6 +46,9 @@ All notable changes to this project are documented in this file.
   image; see `docs/src/architecture.md`.
 - The test dependency on `CairoMakie` is removed from the package `[deps]`;
   both `CairoMakie` and `GLMakie` remain test-only dependencies.
+- `xlims!` on a `GeoAxis` interprets `west > east` as a wrapped interval
+  crossing the antimeridian (e.g. `xlims!(ax, 160, -160)`) instead of reversing
+  the axis.
 
 ### Fixed
 
