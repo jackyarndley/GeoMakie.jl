@@ -39,7 +39,9 @@ Current internal modules (`src/geoaxis/`):
   sphere-clip/resampling pipeline, with boundary-intersection queries.
 - `labels.jl` — boundary-aware `LabelCandidate` placement using actual
   boundary intersections, outward normals, tick length/padding, measured text
-  boxes, requested side, alignment and rotation; greedy overlap rejection.
+  boxes, requested side, alignment and rotation; greedy overlap rejection with
+  a deterministic local-improvement pass and `:outside`/`:inline`/`:auto`
+  placement modes.
 - `layout.jl` — viewport-independent `DecorationExtents` and exact
   `compute_protrusions` from visible decorations (tick marks, tick labels,
   axis labels, titles, subtitles). Hidden decorations reserve no space, and
@@ -81,6 +83,8 @@ Implemented in this milestone:
   (`test/caching.jl`), with measurements in `benchmark/interactions.jl`.
 - Boundary strategy selection, adaptive fallback, component identity and
   NaN-separated boundary segments (`test/boundaries.jl`).
+- Label placement modes, local improvement and polar inline stability
+  (`test/label_layout.jl`).
 - Unified polar-map support: polar, azimuthal, perspective and orthographic
   maps are ordinary `GeoAxis` instances configured with a destination PROJ
   string and geographic limits. There is no separate `GeoPolarAxis` type.
