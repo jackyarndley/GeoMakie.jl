@@ -36,7 +36,7 @@ end
 function ProjectionTraits(t::Proj.Transformation)
     clip = clip_strategy(t)
     if clip isa NoClip
-        return ProjectionTraits(:continuous, clip, :none, true, Float64[], Float64[])
+        return ProjectionTraits(:continuous, clip, :adaptive, true, Float64[], Float64[])
     elseif clip isa AntimeridianClip
         seams = Float64[clip.lon0 - 180.0, clip.lon0 + 180.0]
         sing = clip.lat_max < 90.0 ? Float64[-clip.lat_max, clip.lat_max] : Float64[]
@@ -53,12 +53,12 @@ function ProjectionTraits(t::Proj.Transformation)
         return ProjectionTraits(:interrupted, clip, :lobes,
             false, Float64[-180.0, 180.0], Float64[])
     elseif clip isa ProjectedClip
-        return ProjectionTraits(:projected_jump, clip, :projected_jump,
+        return ProjectionTraits(:projected_jump, clip, :adaptive,
             true, Float64[], Float64[])
     else
-        # Conservative fallback for unknown/custom pipelines: assume a longitude
-        # seam exists and let the generic clip machinery do its best.
-        return ProjectionTraits(:custom, clip, :antimeridian,
+        # Conservative fallback for unknown/custom pipelines: use the adaptive
+        # sampled boundary so the map still frames itself.
+        return ProjectionTraits(:custom, clip, :adaptive,
             true, Float64[-180.0, 180.0], Float64[])
     end
 end
@@ -103,4 +103,3 @@ create_geoprojection(dest, source) = geoprojection(dest, source)
 _projector(gp::GeoProjection) = _projector(gp.forward)
 _inverse_projector(gp::GeoProjection) = _projector(gp.inverse)
 clip_strategy(gp::GeoProjection) = gp.traits.clip_strategy
-boundary_points(gp::GeoProjection) = boundary_points(gp.destination, gp.source)

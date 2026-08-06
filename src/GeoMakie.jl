@@ -55,6 +55,7 @@ include("projection.jl")
 include("sphere_clip.jl") # sphere-space clipping + adaptive resampling for discontinuities
 
 include("geoaxis/projection.jl") # GeoProjection + ProjectionTraits (GeoAxis v2)
+include("geoaxis/boundaries.jl") # projection-domain boundary strategies (GeoAxis v2)
 include("geoaxis/viewport.jl")   # geographic viewport state (GeoAxis v2)
 include("geoaxis/graticule.jl")  # adaptive graticule engine (GeoAxis v2)
 include("geoaxis/labels.jl")     # boundary-aware tick labels (GeoAxis v2)

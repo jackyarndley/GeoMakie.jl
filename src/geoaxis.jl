@@ -707,7 +707,7 @@ function Makie.initialize_block!(axis::GeoAxis)
         bkey = (to_value(axis.dest), to_value(axis.source))
         boundary = getcache!(axis.cache.boundary, bkey, () ->
             try
-                boundary_points(to_value(axis.dest), to_value(axis.source))
+                boundary_points(gp)
             catch
                 Point2d[]
             end)
@@ -726,9 +726,10 @@ function Makie.initialize_block!(axis::GeoAxis)
     # Projection-domain outline (the d3 `.sphere()` boundary of the active clip), drawn as the
     # axis spine: limb circle for azimuthal horizons, ellipse/rectangle for cylindricals.
     boundary_obs = lift(axis.dest, axis.source) do dest, src
+        gp = geoprojection(dest, src)
         getcache!(axis.cache.boundary, (dest, src), () ->
             try
-                boundary_points(dest, src)
+                boundary_segments(gp)
             catch
                 Point2d[]
             end)
