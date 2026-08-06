@@ -29,8 +29,43 @@ function axis_setup!(axis::GeoAxis)
     end
     notify(axis.layoutobservables.suggestedbbox)
     Makie.register_events!(axis, scene)
+    # Track drag-pan activity so graticules/labels can use the interactive
+    # (coarser) quality level while the camera is moving.
+    on(scene.events.mousebutton) do event
+        if event.action == MouseEventTypes.press
+            axis.interaction_active[] = true
+        elseif event.action == MouseEventTypes.release
+            Timer(0.2) do _
+                axis.interaction_active[] = false
+            end
+        end
+        return Consume(false)
+    end
     on(scene, axis.limits) do _
-        Makie.reset_limits!(axis)
+        if !axis.block_limit_linking[]
+            _propagate_geographic_limits!(axis)
+        end
+        # Suppress projected propagation while limits are being applied
+        # programmatically; interactive camera changes propagate separately.
+        axis.suppress_projected_propagation[] = true
+        try
+            Makie.reset_limits!(axis)
+        finally
+            axis.suppress_projected_propagation[] = false
+        end
+    end
+    on(scene, axis.targetlimits) do _
+        _propagate_projected_limits!(axis)
+    end
+    on(scene, axis.linked_geographic_limits) do _
+        if !axis.block_limit_linking[]
+            axis.suppress_projected_propagation[] = true
+            try
+                Makie.reset_limits!(axis)
+            finally
+                axis.suppress_projected_propagation[] = false
+            end
+        end
     end
     onany(scene, scene.viewport, targetlimits) do _, _
         Makie.adjustlimits!(axis)
@@ -50,11 +85,42 @@ respectively, or it is determined automatically from the plots in the axis.
 If one of the components is a tuple of two numbers, those are used directly.
 """
 function Makie.reset_limits!(axis::GeoAxis; xauto = true, yauto = true)
-    mlims = Makie.convert_limit_attribute(axis.limits[])
+    rawlims = axis.limits[]
+    if rawlims isa GeographicLimits
+        gp = geoprojection(to_value(axis.dest), to_value(axis.source))
+        rect = project_geographic_extent(gp, rawlims.x, rawlims.y[1], rawlims.y[2])
+        rect === nothing && return nothing
+        axis.targetlimits[] = rect
+        return nothing
+    end
+    if rawlims isa Tuple && all(isnothing, rawlims) && axis.linked_geographic_limits[] !== nothing
+        rawlims = axis.linked_geographic_limits[]
+        gp = geoprojection(to_value(axis.dest), to_value(axis.source))
+        rect = project_geographic_extent(gp, rawlims.x, rawlims.y[1], rawlims.y[2])
+        rect === nothing && return nothing
+        axis.targetlimits[] = rect
+        return nothing
+    end
+    mlims = Makie.convert_limit_attribute(rawlims)
 
     mxlims, mylims = mlims::Tuple{Any, Any}
 
     targetlims = axis.targetlimits[]
+    if mxlims isa LongitudeInterval
+        # `yautolimits` returns *projected* limits; the wrapped-x path needs
+        # geographic latitudes. Use explicit geographic y when given, otherwise
+        # fall back to the full latitude range.
+        ylims = if mylims isa Tuple && all(x -> x isa Real, mylims)
+            convert(Tuple{Float64, Float64}, tuple(mylims...))
+        else
+            (-90.0, 90.0)
+        end
+        gp = geoprojection(to_value(axis.dest), to_value(axis.source))
+        rect = project_geographic_extent(gp, mxlims, ylims[1], ylims[2])
+        rect === nothing && return nothing
+        axis.targetlimits[] = rect
+        return nothing
+    end
     needs_transform = [false, false, false, false] # xmin, xmax, ymin, ymax
     xlims = if isnothing(mxlims) || mxlims[1] === nothing || mxlims[2] === nothing
         l = if xauto
@@ -166,105 +232,9 @@ end
 xautolimits(axis::GeoAxis) = autolimits(axis, 1)
 yautolimits(axis::GeoAxis) = autolimits(axis, 2)
 
-function br_getindex(vector::AbstractVector, idx::CartesianIndex, dim::Int)
-    return vector[Tuple(idx)[dim]]
-end
-
-function br_getindex(matrix::AbstractMatrix, idx::CartesianIndex, dim::Int)
-    return matrix[idx]
-end
-
-function get_point_xyz(linear_indx::Int, indices, X, Y, Z)
-    idx = indices[linear_indx]
-    x = br_getindex(X, idx, 1)
-    y = br_getindex(Y, idx, 2)
-    z = Z[linear_indx]
-    if z isa Number
-        return Point3d(x, y, z)
-    else
-        return Point3d(x, y, 0)
-    end
-end
-
-function get_point_xyz(linear_indx::Int, indices, X, Y)
-    idx = indices[linear_indx]
-    x = br_getindex(X, idx, 1)
-    y = br_getindex(Y, idx, 2)
-    return Point3d(x, y, 0.0)
-end
-
-function _point_iterator(plot::Union{Image,Heatmap,Surface})
-    Z = plot[3][]
-    X = to_vector(plot[1][], size(Z, 1), Float64)
-    Y = to_vector(plot[2][], size(Z, 2), Float64)
-    indices = CartesianIndices(Z)
-    return Point3d[get_point_xyz(idx, indices, X, Y, Z) for idx in 1:length(Z)]
-end
-
-function _point_iterator(list::AbstractVector)
-    if length(list) == 1
-        # save a copy!
-        return _point_iterator(list[1])
-    else
-        points = Point3d[]
-        for elem in list
-            for point in _point_iterator(elem)
-                push!(points, to_ndim(Point33d, point, 0))
-            end
-        end
-        return points
-    end
-end
-
-function _point_iterator(plot::Plot)
-    if isempty(plot.plots)
-        return Makie.point_iterator(plot)
-    end
-    return _point_iterator(plot.plots)
-end
-
-# function iterate_transformed(plot::Plot)
-#     points = _point_iterator(plot)
-#     t = Makie.transformation(plot)
-#     model = Makie.model_transform(t)
-#     trans_func = Makie.transform_func(t)
-#     return Makie.iterate_transformed(points, model, to_value(get(plot, :space, :data)), trans_func)
-# end
-
-
-function limits_from_transformed_points(points_iterator)
-    isempty(points_iterator) && return Rect3d()
-    first, rest = Iterators.peel(points_iterator)
-    bb = foldl(Makie._update_rect, rest, init = Rect3{Float64}(first, zero(first)))
-    return bb
-end
-
-# include bbox from scaled markers
-function limits_from_transformed_points(positions, scales, rotations, element_bbox)
-    isempty(positions) && return Rect3d()
-
-    first_scale = attr_broadcast_getindex(scales, 1)
-    first_rot = attr_broadcast_getindex(rotations, 1)
-    full_bbox = Ref(first_rot * (element_bbox * first_scale) + first(positions))
-    for (i, pos) in enumerate(positions)
-        scale, rot = attr_broadcast_getindex(scales, i), attr_broadcast_getindex(rotations, i)
-        transformed_bbox = rot * (element_bbox * scale) + pos
-        update_boundingbox!(full_bbox, transformed_bbox)
-    end
-
-    return full_bbox[]
-end
-
-function transformed_limits(scenelike, exclude=(p) -> false)
-    bb_ref = Base.RefValue(Rect3d())
-    Makie.foreach_plot(scenelike) do plot
-        if !exclude(plot)
-            box = limits_from_transformed_points(Makie.iterate_transformed(plot))
-            Makie.update_boundingbox!(bb_ref, box)
-        end
-    end
-    return bb_ref[]
-end
+# When auto-fit data reaches within this fraction of the projection domain (spine) on an edge, the
+# limit snaps out to the spine so the full boundary is framed instead of cropped a few degrees short.
+const _SPINE_SNAP = 0.1
 
 function Makie.getlimits(la::GeoAxis, dim)
     # find all plots that don't have exclusion attributes set
@@ -274,7 +244,7 @@ function Makie.getlimits(la::GeoAxis, dim)
     end
     axis_plots = Set(values(la.elements))
     function exclude(plot)
-        # dont use axis decorations!
+        # dont use axis decorations (grid, ticklabels, AND the spine; see the domain clamp below)!
         plot in axis_plots && return true
         # only use plots with autolimits = true
         to_value(get(plot, dim == 1 ? :xautolimits : :yautolimits, true)) || return true
@@ -283,39 +253,38 @@ function Makie.getlimits(la::GeoAxis, dim)
         # only use visible plots for limits
         return !to_value(get(plot, :visible, true))
     end
-    # get all data limits, minus the excluded plots
-    boundingbox = Makie.boundingbox(la.scene, exclude)
-    # if there are no bboxes remaining, `nothing` signals that no limits could be determined
-    Makie.isfinite_rect(boundingbox) || return nothing
-
-    # otherwise start with the first box
-    mini, maxi = minimum(boundingbox), maximum(boundingbox)
-    return (mini[dim], maxi[dim])
+    # Fit to the DATA, then clamp to the projection's finite domain: exactly cartopy's
+    # `GeoAxes.autoscale_view` (matplotlib autoscale, then bound to `projection.x_limits`/
+    # `y_limits`). The domain here is the spine outline (finite via the conic cutoff cone). The
+    # clamp (a) bounds data that runs to a projection singularity (a pole on a conic) to the map
+    # instead of zooming out to a speck, and (b) frames an empty axis to the full projection.
+    data_bb = Makie.boundingbox(la.scene, exclude)
+    mn = minimum(data_bb)[dim]; mx = maximum(data_bb)[dim]
+    lo = isfinite(mn) ? mn : -Inf
+    hi = isfinite(mx) ? mx : Inf
+    spine = get(la.elements, :spine, nothing)
+    if spine !== nothing
+        dom = Makie.data_limits(spine)
+        dlo = minimum(dom)[dim]; dhi = maximum(dom)[dim]
+        if isfinite(dlo) && isfinite(dhi) && dhi > dlo
+            # When the data already reaches close to a spine edge, snap that edge out to the spine
+            # so the projection boundary shows in full (world land falls a few degrees short of the
+            # pole, but the gallery should frame the whole projection). Otherwise clamp the data
+            # within the domain, so a regional plot stays zoomed to its data. Data running to a
+            # singularity (a pole projecting to ∞ on a conic) is non-finite, so it snaps too.
+            tol = _SPINE_SNAP * (dhi - dlo)
+            lo = (lo - dlo) <= tol ? dlo : max(lo, dlo)
+            hi = (dhi - hi) <= tol ? dhi : min(hi, dhi)
+        end
+    end
+    # if no finite window could be determined, `nothing` signals "leave the limits alone"
+    (isfinite(lo) && isfinite(hi) && hi > lo) || return nothing
+    return (lo, hi)
 end
 
 getxlimits(la::GeoAxis) = getlimits(la, 1)
 getylimits(la::GeoAxis) = getlimits(la, 2)
 
-
-function _selection_vertices_notransform(ax_scene, outer, inner)
-    _clamp(p, plow, phigh) = Point2(clamp(p[1], plow[1], phigh[1]), clamp(p[2], plow[2], phigh[2]))
-    proj(point) = Makie.project(ax_scene, point) + Makie.origin(Makie.to_value(Makie.viewport(ax_scene)))
-    outer = Makie.positivize(outer)
-    inner = Makie.positivize(inner)
-
-    obl = Makie.bottomleft(outer)
-    obr = Makie.bottomright(outer)
-    otl = Makie.topleft(outer)
-    otr = Makie.topright(outer)
-
-    ibl = _clamp(Makie.bottomleft(inner), obl, otr)
-    ibr = _clamp(Makie.bottomright(inner), obl, otr)
-    itl = _clamp(Makie.topleft(inner), obl, otr)
-    itr = _clamp(Makie.topright(inner), obl, otr)
-    # We plot the selection vertices in blockscene, which is pixelspace, so we need to manually
-    # project the points to the space of `ax.scene`
-    return [proj(obl), proj(obr), proj(otr), proj(otl), proj(ibl), proj(ibr), proj(itr), proj(itl)]
-end
 
 function Makie.RectangleZoom(f::Function, ax::GeoAxis; kw...)
     r = Makie.RectangleZoom(f; kw...)
@@ -361,6 +330,7 @@ function Makie.process_interaction(r::Makie.RectangleZoom, event::MouseEvent, ax
     # and targetlimits is in transformed space, so we don't need to transform it
 
     if event.type === MouseEventTypes.leftdragstart
+        ax.interaction_active[] = true
         data = event.data
         prev_data = event.prev_data
         
@@ -371,6 +341,7 @@ function Makie.process_interaction(r::Makie.RectangleZoom, event::MouseEvent, ax
         return Consume(true)
 
     elseif event.type === MouseEventTypes.leftdrag
+        ax.interaction_active[] = true
         # clamp mouse data to shown limits
         rect = ax.finallimits[]
         data = Makie.rectclamp(event.data, rect)
@@ -380,6 +351,7 @@ function Makie.process_interaction(r::Makie.RectangleZoom, event::MouseEvent, ax
         return Consume(true)
 
     elseif event.type === MouseEventTypes.leftdragstop
+        ax.interaction_active[] = false
         try
             r.callback(r.rectnode[])
         catch e
@@ -434,6 +406,10 @@ function Makie.process_interaction(s::Makie.ScrollZoom, event::Makie.ScrollEvent
     cam = Makie.camera(scene)
 
     if zoom != 0
+        ax.interaction_active[] = true
+        Timer(0.3) do _
+            ax.interaction_active[] = false
+        end
         pa = Makie.pixelarea(scene)[]
 
         z = (1.0f0 - s.speed)^zoom
@@ -480,20 +456,35 @@ end
 
 Makie.transformation(ax::GeoAxis) = Makie.transformation(ax.scene)
 
+function _current_limit_tuple(ax::GeoAxis)
+    raw = ax.limits[]
+    raw isa GeographicLimits && return (raw.x, raw.y)
+    return Makie.convert_limit_attribute(raw)
+end
+
 function Makie.xlims!(ax::GeoAxis, xlims)
+    if xlims isa LongitudeInterval
+        mlims = _current_limit_tuple(ax)
+        ax.limits[] = (xlims, mlims[2])
+        Makie.reset_limits!(ax; yauto = false)
+        return nothing
+    end
     if length(xlims) != 2
         error("Invalid xlims length of $(length(xlims)), must be 2.")
     elseif xlims[1] == xlims[2] && xlims[1] !== nothing
         error("Can't set x limits to the same value $(xlims[1]).")
-    elseif all(x -> x isa Real, xlims) && xlims[1] > xlims[2]
-        xlims = reverse(xlims)
-        ax.xreversed[] = true
+    elseif all(x -> x isa Real, xlims)
+        # Geographic x limits are periodic: west > east denotes a wrapped
+        # interval crossing the antimeridian, and any numeric pair is stored as
+        # a LongitudeInterval so the seam-aware projection path is used.
+        xlims = LongitudeInterval(xlims[1], xlims[2])
+        ax.xreversed[] = false
     else
         ax.xreversed[] = false
     end
-    mlims = Makie.convert_limit_attribute(ax.limits[])
+    mlims = _current_limit_tuple(ax)
 
-    ax.limits.val = (xlims, mlims[2])
+    ax.limits[] = (xlims, mlims[2])
     Makie.reset_limits!(ax; yauto=false)
     return nothing
 end
@@ -509,8 +500,8 @@ function Makie.ylims!(ax::GeoAxis, ylims)
     else
         ax.yreversed[] = false
     end
-    mlims = Makie.convert_limit_attribute(ax.limits[])
-    ax.limits.val = (mlims[1], ylims)
+    mlims = _current_limit_tuple(ax)
+    ax.limits[] = (mlims[1], ylims)
     Makie.reset_limits!(ax; xauto=false)
     return nothing
 end
@@ -519,6 +510,35 @@ function Makie.limits!(ax::GeoAxis, xlims, ylims)
     Makie.xlims!(ax, xlims)
     Makie.ylims!(ax, ylims)
     return
+end
+
+"""
+    geolimits!(ax::GeoAxis, west, east, south, north)
+
+Set geographic limits in the source CRS. Longitude intervals may cross the
+antimeridian (e.g. `geolimits!(ax, 160, -160, 30, 70)`); the interval is split
+at the projection seam before projection.
+"""
+function geolimits!(ax::GeoAxis, west, east, south, north)
+    ax.limits[] = GeographicLimits(
+        LongitudeInterval(west, east),
+        (Float64(south), Float64(north)))
+    Makie.reset_limits!(ax)
+    return nothing
+end
+
+"""
+    projected_limits!(ax::GeoAxis, xmin, xmax, ymin, ymax)
+
+Set the projected camera rectangle directly (already-projected coordinates,
+for example metres from PROJ). This bypasses geographic limit interpretation.
+"""
+function projected_limits!(ax::GeoAxis, xmin, xmax, ymin, ymax)
+    ax.limits[] = (nothing, nothing)
+    rect = Makie.BBox(xmin, xmax, ymin, ymax)
+    ax.targetlimits[] = rect
+    ax.finallimits[] = rect
+    return nothing
 end
 
 function Makie.hidexdecorations!(ax::GeoAxis; label = true, ticklabels = true, ticks = true,
@@ -623,4 +643,16 @@ end
 function Makie.tightlimits!(la::GeoAxis, ::Top)
     la.yautolimitmargin = Base.setindex(la.yautolimitmargin[], 0.0, 2)
     autolimits!(la)
+end
+
+"""
+    autolimits!(ax::GeoAxis)
+
+Clear any manually set geographic/projected limits and recompute the limits from
+the plotted data (clamped to the projection domain).
+"""
+function Makie.autolimits!(ax::GeoAxis)
+    ax.limits[] = (nothing, nothing)
+    Makie.reset_limits!(ax)
+    return nothing
 end
