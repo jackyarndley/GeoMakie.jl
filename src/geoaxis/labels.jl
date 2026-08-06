@@ -19,6 +19,8 @@ A candidate tick label attached to a specific boundary component:
 - `boundary_arclength`: normalised arc position along that component (0..1).
 - `score`: sort key used for stable placement (smaller = preferred).
 - `text`: the rendered label string.
+- `interior`: `true` for labels placed inside the map (e.g. latitude labels on
+  polar parallels), `false` for exterior boundary labels.
 """
 struct LabelCandidate
     tick_id::Int
@@ -30,6 +32,7 @@ struct LabelCandidate
     boundary_arclength::Float64
     score::Float64
     text::String
+    interior::Bool
 end
 
 function _rotated_bbox(bb::Rect2d, θ::Real)
@@ -105,7 +108,7 @@ Build one candidate with an actual measured pixel-space bounding box.
 function label_candidate(tick_id::Int, point_px::Point2d, text::String,
         font, fontsize::Real, rotation::Real,
         alignment::Tuple{Symbol, Symbol}, boundary_component::Int,
-        boundary_arclength::Float64)
+        boundary_arclength::Float64; interior::Bool = false)
     bb = Makie.text_bb(text, font, fontsize)
     w = widths(bb)
     # Anchor the measured text box at the candidate position (centred); overlap
@@ -115,7 +118,37 @@ function label_candidate(tick_id::Int, point_px::Point2d, text::String,
     # Small positive penalty away from the map centre keeps ties deterministic.
     score = boundary_arclength + 1.0e-6 * boundary_component
     return LabelCandidate(tick_id, point_px, Float64(rotation), alignment,
-        bbox_px, boundary_component, boundary_arclength, score, text)
+        bbox_px, boundary_component, boundary_arclength, score, text, interior)
+end
+
+# Interior candidate for a parallel that does not reach the projected boundary
+# (the polar-cap case: parallels are concentric rings inside the map). The label
+# is placed at the point of the parallel closest to the requested side and offset
+# outward from the map centre so it reads as a latitude label on that parallel.
+function _parallel_interior_candidate(curve::GraticuleCurve, tick_id::Int, side::Symbol,
+        center::Point2d, ticklabelpad::Real, rotation::Real,
+        alignment, font, fonts, fontsize::Real, format)
+    pts = filter(p -> isfinite(p[1]) && isfinite(p[2]), curve.projected_geometry)
+    isempty(pts) && return nothing
+    anchor = if side === :left
+        reduce((a, b) -> b[1] < a[1] ? b : a, pts)
+    elseif side === :right
+        reduce((a, b) -> b[1] > a[1] ? b : a, pts)
+    elseif side === :top
+        reduce((a, b) -> b[2] > a[2] ? b : a, pts)
+    else
+        reduce((a, b) -> b[2] < a[2] ? b : a, pts)
+    end
+    n = anchor .- center
+    n = norm(n) > 1.0e-9 ? n ./ norm(n) : Point2d(1.0, 0.0)
+    pos = anchor .+ n .* ticklabelpad
+    text = _tick_label_string(curve.coordinate, :parallel, format)
+    align = alignment === Makie.automatic ? _default_alignment(n) : alignment
+    nfont = font isa Symbol ?
+        (fonts === nothing ? Makie.defaultfont() : Makie.to_font(fonts, font)) :
+        Makie.to_font(font)
+    return label_candidate(tick_id, Point2d(pos...), text, nfont, fontsize,
+        rotation, align, 0, 0.0; interior = true)
 end
 
 """
@@ -149,7 +182,14 @@ function place_graticule_labels(curves::Vector{GraticuleCurve}, ticks, kind::Sym
         curve.kind == kind || continue
         tick_id = findfirst(≈(curve.coordinate), ticks)
         tick_id === nothing && continue
-        for (px, comp, arc) in graticule_boundary_intersections(curve, boundary_px)
+        ixs = graticule_boundary_intersections(curve, boundary_px)
+        if isempty(ixs) && kind === :parallel
+            int_cand = _parallel_interior_candidate(curve, tick_id, side, center,
+                ticklabelpad, rotation, alignment, font, fonts, fontsize, format)
+            int_cand === nothing || push!(candidates, (int_cand, true))
+            continue
+        end
+        for (px, comp, arc) in ixs
             n = _outward_normal(px, boundary_px)
             # Prefer the requested side; accept the intersection only when the
             # outward normal points that way (with a tolerance for curved spines).

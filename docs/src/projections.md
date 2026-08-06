@@ -1407,23 +1407,23 @@ poly!(ga, land; color = (:gray70, 0.55), strokecolor = :black, strokewidth = 0.3
 fig
 ```
 
-## Polar stereographic (`GeoPolarAxis`)
+## Polar stereographic (`GeoAxis`)
 
-!!! note "A separate axis type"
-    Pole-centred polar maps use [`GeoPolarAxis`](@ref) rather than `GeoAxis`. It is a
-    distinct axis type on purpose, so that a circular boundary, a polar graticule, and a
-    circular spine all come for free.
+Pole-centred polar maps are ordinary `GeoAxis` maps: the destination PROJ string selects a
+polar azimuthal projection and the geographic limits select the cap. The circular boundary,
+polar graticule and circular spine are handled by the standard projection traits, boundary
+strategies and label placement, so there is no separate polar axis type.
 
-Pass the cap latitude as `latcap` (its sign picks the pole: `latcap ≥ 0` north, `< 0` south),
-then plot with the usual verbs using geographic `(lon, lat)` data:
+Set the cap with `limits = (west, east, south, north)` (the sign of the latitudes picks the
+pole), then plot with the usual verbs using geographic `(lon, lat)` data:
 
 ```@example projections
 polar = Figure(size = (840, 460))
-for (i, (latcap, ttl)) in enumerate([
-        (55, "North polar stereographic"),
-        (-55, "South polar stereographic")])
-    gpa = GeoPolarAxis(polar[1, i]; latcap = latcap, title = ttl, titlesize = 11)
-    poly!(gpa, land; color = (:gray70, 0.55), strokecolor = :black, strokewidth = 0.3)
+for (i, (dest, lims, ttl)) in enumerate([
+        ("+proj=stere +lat_0=90 +lon_0=0", (-180, 180, 55, 90), "North polar stereographic"),
+        ("+proj=stere +lat_0=-90 +lon_0=0", (-180, 180, -90, -55), "South polar stereographic")])
+    ga = GeoAxis(polar[1, i]; dest = dest, limits = lims, title = ttl, titlesize = 11)
+    poly!(ga, land; color = (:gray70, 0.55), strokecolor = :black, strokewidth = 0.3)
 end
 polar
 ```

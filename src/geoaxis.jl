@@ -824,6 +824,7 @@ function Makie.initialize_block!(axis::GeoAxis)
             end
             if axis.yticklabelsvisible[]
                 for cand in lat_cands
+                    cand.interior && continue   # interior labels reserve no layout space
                     off = ytick_out + axis.yticklabelpad[] + widths(cand.bbox_px)[1]
                     add_extent!(ext, cand.position_px[1] < cxp ? :left : :right, off)
                 end

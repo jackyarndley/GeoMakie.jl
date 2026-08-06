@@ -56,13 +56,39 @@ Implemented in this milestone:
   `add_cyclic_point`).
 - `GeoTicks(n)`, `GeoTicks(spacing = …)`, `GeoTicks(values = …)`.
 - Geometry and layout regression tests (`test/geoaxis_v2.jl`).
+- Unified polar-map support: polar, azimuthal, perspective and orthographic
+  maps are ordinary `GeoAxis` instances configured with a destination PROJ
+  string and geographic limits. There is no separate `GeoPolarAxis` type.
+
+## Polar maps through `GeoAxis`
+
+A polar map is a normal geographic map using a polar, azimuthal,
+stereographic, perspective, or related PROJ projection. The public type is
+always `GeoAxis`:
+
+```julia
+GeoAxis(fig[1, 1];
+    dest = "+proj=stere +lat_0=90 +lon_0=0 +datum=WGS84",
+    limits = (-180, 180, 60, 90))
+```
+
+The same implementation handles north/south polar caps, polar stereographic,
+Lambert azimuthal equal-area, orthographic polar views, circular or
+projection-specific boundaries, longitude labels around the boundary, latitude
+labels on parallels, regional caps, clipping, limits, layout, zooming and
+panning.
+
+### Migration note
+
+Polar geographic maps are represented using `GeoAxis` with an appropriate
+destination projection and geographic extent. `GeoPolarAxis` has been removed
+because it duplicated `GeoAxis` functionality.
 
 Deferred to later pull requests:
 
 - Full longitude-wrapping APIs (`lonlims!`/`latlims!` with wrapped intervals).
 - `linkaxes!` support for `GeoAxis`.
 - Advanced inline labels and interaction-performance work.
-- Reactive `GeoPolarAxis` attributes.
 - Exact square boundaries for Spilhaus/Adams-square projections (rounded
   corners remain, documented in the sphere-clip registry).
 

@@ -5,9 +5,8 @@ A circular-boundary polar map (a stereographic, or other pole-centred azimuthal,
 zoomed to a cap and clipped to a circle) is the natural way to view sea-ice, Antarctica, or a
 tripolar-grid field near a pole. This reproduces cartopy's
 [`always_circular_stereo`](https://cartopy.readthedocs.io/latest/gallery/lines_and_polygons/always_circular_stereo.html)
-example using [`GeoPolarAxis`](@ref), which re-expresses a pole-centred azimuthal projection on a
-Makie `PolarAxis` (`θ = lon`, `r = radial(lat)`) to get the circular clip, the polar graticule
-(parallels as r-rings, meridians as θ-spokes) and the circular spine for free.
+example using the standard [`GeoAxis`](@ref): the destination PROJ string selects the polar
+projection and the geographic limits select the cap, so there is no separate polar axis type.
 =#
 using GeoMakie, CairoMakie
 CairoMakie.activate!(type = :png, px_per_unit = 2) # hide
@@ -15,14 +14,18 @@ CairoMakie.activate!(type = :png, px_per_unit = 2) # hide
 #=
 ## A south-polar cap with coastlines
 
-Pass the cap latitude as `latcap`; its sign picks the pole (negative selects the south pole). The
-disk is clipped at the cap, leaving the corners empty, for cartopy's `always_circular_stereo` look.
-Plot with the usual verbs (`poly!`, `lines!`, `scatter!`, …) using geographic `(lon, lat)` data.
+Set `dest` to a pole-centred azimuthal projection and `limits` to the cap latitudes (negative
+selects the south pole). The disk is clipped at the projection horizon and the cap, leaving the
+corners empty, for cartopy's `always_circular_stereo` look. Plot with the usual verbs (`poly!`,
+`lines!`, `scatter!`, …) using geographic `(lon, lat)` data.
 =#
 
 fig = Figure(size = (500, 500))
-gpa = GeoPolarAxis(fig[1, 1]; latcap = -65, title = "South polar stereographic")
-poly!(gpa, GeoMakie.land(); color = (:gray70, 0.55), strokecolor = :black, strokewidth = 0.4)
+ga = GeoAxis(fig[1, 1];
+    dest = "+proj=stere +lat_0=-90 +lon_0=0",
+    limits = (-180, 180, -90, -65),
+    title = "South polar stereographic")
+poly!(ga, GeoMakie.land(); color = (:gray70, 0.55), strokecolor = :black, strokewidth = 0.4)
 fig
 
 #=
@@ -55,12 +58,17 @@ on the right, with coastlines overlaid and a shared `Colorbar`.
 =#
 
 caps = Figure(size = (840, 460))
-gpa = GeoPolarAxis(caps[1, 1]; latcap = 50,
-    dest = "+proj=laea +lat_0=90 +lon_0=0", title = "Lambert azimuthal (contourf)")
+gpa = GeoAxis(caps[1, 1];
+    dest = "+proj=laea +lat_0=90 +lon_0=0",
+    limits = (-180, 180, 50, 90),
+    title = "Lambert azimuthal (contourf)")
 contourf!(gpa, lons, lats, zs; levels = 12)
 lines!(gpa, GeoMakie.coastlines(); color = (:black, 0.6), linewidth = 0.4)
 
-gpb = GeoPolarAxis(caps[1, 2]; latcap = 50, title = "Stereographic (surface)")
+gpb = GeoAxis(caps[1, 2];
+    dest = "+proj=stere +lat_0=90 +lon_0=0",
+    limits = (-180, 180, 50, 90),
+    title = "Stereographic (surface)")
 sf = surface!(gpb, lons, lats, zs)
 lines!(gpb, GeoMakie.coastlines(); color = (:black, 0.6), linewidth = 0.4)
 Colorbar(caps[1, 3], sf)

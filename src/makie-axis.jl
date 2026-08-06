@@ -647,3 +647,15 @@ function Makie.tightlimits!(la::GeoAxis, ::Top)
     la.yautolimitmargin = Base.setindex(la.yautolimitmargin[], 0.0, 2)
     autolimits!(la)
 end
+
+"""
+    autolimits!(ax::GeoAxis)
+
+Clear any manually set geographic/projected limits and recompute the limits from
+the plotted data (clamped to the projection domain).
+"""
+function Makie.autolimits!(ax::GeoAxis)
+    ax.limits[] = (nothing, nothing)
+    Makie.reset_limits!(ax)
+    return nothing
+end

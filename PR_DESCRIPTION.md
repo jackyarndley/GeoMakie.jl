@@ -13,7 +13,7 @@ staged GeoAxis v2 milestone on top of it.
   projection-seam handling) via `src/sphere_clip.jl`.
 - Adaptive geographic resampling, spherical polygon winding, seam-aware
   `surface!`/`heatmap!`/`contourf!`/`poly!`/`lines!`/`meshimage!`.
-- `GeoPolarAxis` and the projection gallery docs/examples.
+- The projection gallery docs/examples.
 
 ### Stabilisation
 
@@ -56,8 +56,32 @@ StructArrays 0.7.3, CairoMakie 0.15.13, GLMakie 0.13.13.
   dependencies, every supported Makie series, CairoMakie and GLMakie backends,
   and a weekly freshness run.
 
+### Unified polar support (no separate `GeoPolarAxis`)
+
+`GeoPolarAxis` (inherited from upstream PR #381) has been removed. Polar maps
+are ordinary `GeoAxis` instances:
+
+```julia
+GeoAxis(fig[1, 1];
+    dest = "+proj=stere +lat_0=90 +lon_0=0 +datum=WGS84",
+    limits = (-180, 180, 60, 90))
+```
+
+The destination PROJ string selects the projection; geographic limits select
+the cap. The standard projection traits, boundary strategies, graticule
+engine, boundary-aware label placement, protrusions and interactions handle
+north/south polar stereographic, Lambert azimuthal equal-area, orthographic
+polar views, circular boundaries, longitude labels around the boundary,
+latitude labels on parallels, regional caps and full caps.
+
+Migration note:
+
+> Polar geographic maps are represented using `GeoAxis` with an appropriate
+> destination projection and geographic extent. `GeoPolarAxis` has been
+> removed because it duplicated `GeoAxis` functionality.
+
 ## Deferred
 
 Longitude-wrapping APIs, `linkaxes!`, advanced inline labels, interaction
-optimisations, reactive `GeoPolarAxis` attributes, and exact square-boundary
-projections are intentionally left for follow-up pull requests.
+optimisations, and exact square-boundary projections are intentionally left
+for follow-up pull requests.
