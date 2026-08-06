@@ -614,13 +614,11 @@ function Makie.initialize_block!(axis::GeoAxis)
         # full globe, so graticule/tick code never ranges over Inf/NaN.
         if !all(isfinite, xlims) || !all(isfinite, ylims)
             gp0 = geoprojection(to_value(axis.dest), to_value(axis.source))
-            bkey0 = (to_value(axis.dest), to_value(axis.source))
-            boundary0 = getcache!(axis.cache.boundary, bkey0, () ->
-                try
-                    boundary_points(gp0)
-                catch
-                    Point2d[]
-                end)
+            boundary0 = try
+                boundary_points(to_value(axis.dest), to_value(axis.source))
+            catch
+                Point2d[]
+            end
             geo0 = geographic_extent_from_projected(gp0,
                 [p for p in boundary0 if p in limit_rect])
             if geo0 === nothing
