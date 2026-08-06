@@ -50,6 +50,7 @@ jobs:
         run: |
           julia --project=. -e '
             using Pkg
+            Pkg.Registry.add("General")
             Pkg.Registry.update()
             Pkg.resolve()
             Pkg.instantiate()
@@ -78,6 +79,7 @@ jobs:
         run: |
           julia --project=. -e '
             using Pkg
+            Pkg.Registry.add("General")
             Pkg.Registry.update()
             Pkg.activate(; temp = true)
             Pkg.develop(path = ".")
@@ -110,6 +112,7 @@ jobs:
         run: |
           julia --project=. -e '
             using Pkg
+            Pkg.Registry.add("General")
             Pkg.Registry.update()
             Pkg.activate(; temp = true)
             Pkg.develop(path = ".")
@@ -136,6 +139,7 @@ jobs:
         run: |
           xvfb-run -s '-screen 0 1024x768x24' julia --project=docs -e '
             using Pkg
+            Pkg.Registry.add("General")
             Pkg.instantiate()'
         env:
           DISPLAY: ':0'
