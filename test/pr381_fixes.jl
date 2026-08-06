@@ -25,4 +25,25 @@
         @test_nowarn poly!(ga, [multi])
         @test_nowarn Makie.update_state_before_display!(fig)
     end
+
+    @testset "per-row colours survive MultiPolygon flattening and seam splitting" begin
+        # 49 user MultiPolygons (two with two components) flatten to 51 pieces;
+        # the 49 per-row colours must be replicated onto the pieces so
+        # CairoMakie can render the split child.
+        mps = GeometryBasics.MultiPolygon{2, Float32}[]
+        for i in 1:49
+            p1 = GeometryBasics.Polygon(Point2f[(i - 1, 0), (i, 0), (i, 1), (i - 1, 1)])
+            if i in (25, 26)
+                p2 = GeometryBasics.Polygon(Point2f[(i - 1, 2), (i, 2), (i, 3), (i - 1, 3)])
+                push!(mps, GeometryBasics.MultiPolygon([p1, p2]))
+            else
+                push!(mps, GeometryBasics.MultiPolygon([p1]))
+            end
+        end
+        colors = fill(RGBAf(1, 0.9, 0, 1), length(mps))
+        fig = Figure()
+        ga = GeoAxis(fig[1, 1]; dest = "+proj=moll")
+        @test_nowarn poly!(ga, mps; color = colors, strokecolor = :black, strokewidth = 1.3)
+        @test_nowarn (save(tempname() * ".png", fig); true)
+    end
 end
