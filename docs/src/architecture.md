@@ -47,6 +47,10 @@ Current internal modules (`src/geoaxis/`):
 - `longitude.jl` — `LongitudeInterval` for wrapped longitude extents, with
   width, membership, canonicalisation, seam splitting and projection of
   geographic extents through the active `GeoProjection`.
+- `linking.jl` — geographic `GeoAxis` linking: `linkxaxes!`/`linkyaxes!`/
+  `linkaxes!` share longitude/latitude extents (never projected camera
+  rectangles), with PROJ-based source-CRS validation and interactive camera
+  propagation through `linked_geographic_limits`.
 
 ## Status and follow-up work
 
@@ -61,6 +65,8 @@ Implemented in this milestone:
 - Geometry and layout regression tests (`test/geoaxis_v2.jl`).
 - Wrapped longitude intervals and `geolimits!`/`projected_limits!`
   (`test/wrapped_limits.jl`).
+- Geographic linking across projections, central meridians, wrapped limits and
+  interactive camera changes (`test/linking.jl`).
 - Unified polar-map support: polar, azimuthal, perspective and orthographic
   maps are ordinary `GeoAxis` instances configured with a destination PROJ
   string and geographic limits. There is no separate `GeoPolarAxis` type.

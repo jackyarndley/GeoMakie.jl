@@ -43,6 +43,15 @@ end
 _quantized_rect(r::Rect2{T}) where {T} =
     Rect2i(round.(Int, minimum(r)), round.(Int, widths(r)))
 
+# Outward normal for a spine point, mirroring `tick_segments`.
+function _spine_outward_normal(p, center::Point2d)
+    n = isfinite(p.intersect_dir[1]) ?
+        normalize(Point2d(-p.intersect_dir[2], p.intersect_dir[1])) :
+        normalize(p.dir)
+    dot(n, p.projected .- center) < 0 && (n = -n)
+    return n
+end
+
 """
     compute_protrusions(title, titlesize, titlegap, titlevisible,
         decoration_extents,

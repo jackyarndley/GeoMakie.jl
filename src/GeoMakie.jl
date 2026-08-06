@@ -64,6 +64,7 @@ include("geoaxis/longitude.jl")  # wrapped longitude intervals (GeoAxis v2)
 include("geoaxis.jl")
 include("contoursplitting_geo.jl") # seam-aware filled contours on a GeoAxis
 include("makie-axis.jl")
+include("geoaxis/linking.jl")      # geographic GeoAxis linking (GeoAxis v2)
 
 # some basic recipes
 include("mesh_image.jl")
@@ -82,7 +83,7 @@ export Proj
 export FileIO
 
 export GeoAxis, add_cyclic_point, automatic
-export geolimits!, projected_limits!
+export geolimits!, projected_limits!, unlinkaxes!
 export datalims, datalims!
 @deprecate datalims Makie.autolimits
 @deprecate datalims! Makie.reset_limits!

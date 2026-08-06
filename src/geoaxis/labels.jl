@@ -21,6 +21,9 @@ A candidate tick label attached to a specific boundary component:
 - `text`: the rendered label string.
 - `interior`: `true` for labels placed inside the map (e.g. latitude labels on
   polar parallels), `false` for exterior boundary labels.
+- `side`: the layout side the label belongs to (`:left`, `:right`, `:bottom`,
+  `:top`), derived from the outward boundary normal and independent of the
+  current viewport.
 """
 struct LabelCandidate
     tick_id::Int
@@ -33,6 +36,7 @@ struct LabelCandidate
     score::Float64
     text::String
     interior::Bool
+    side::Symbol
 end
 
 function _rotated_bbox(bb::Rect2d, θ::Real)
@@ -108,7 +112,7 @@ Build one candidate with an actual measured pixel-space bounding box.
 function label_candidate(tick_id::Int, point_px::Point2d, text::String,
         font, fontsize::Real, rotation::Real,
         alignment::Tuple{Symbol, Symbol}, boundary_component::Int,
-        boundary_arclength::Float64; interior::Bool = false)
+        boundary_arclength::Float64; interior::Bool = false, side::Symbol = :bottom)
     bb = Makie.text_bb(text, font, fontsize)
     w = widths(bb)
     # Anchor the measured text box at the candidate position (centred); overlap
@@ -118,7 +122,13 @@ function label_candidate(tick_id::Int, point_px::Point2d, text::String,
     # Small positive penalty away from the map centre keeps ties deterministic.
     score = boundary_arclength + 1.0e-6 * boundary_component
     return LabelCandidate(tick_id, point_px, Float64(rotation), alignment,
-        bbox_px, boundary_component, boundary_arclength, score, text, interior)
+        bbox_px, boundary_component, boundary_arclength, score, text, interior, side)
+end
+
+function _label_side(n::Point2d)
+    return abs(n[1]) >= abs(n[2]) ?
+        (n[1] < 0 ? :left : :right) :
+        (n[2] < 0 ? :bottom : :top)
 end
 
 # Interior candidate for a parallel that does not reach the projected boundary
@@ -148,7 +158,7 @@ function _parallel_interior_candidate(curve::GraticuleCurve, tick_id::Int, side:
         (fonts === nothing ? Makie.defaultfont() : Makie.to_font(fonts, font)) :
         Makie.to_font(font)
     return label_candidate(tick_id, Point2d(pos...), text, nfont, fontsize,
-        rotation, align, 0, 0.0; interior = true)
+        rotation, align, 0, 0.0; interior = true, side = side)
 end
 
 """
@@ -204,7 +214,7 @@ function place_graticule_labels(curves::Vector{GraticuleCurve}, ticks, kind::Sym
                 (fonts === nothing ? Makie.defaultfont() : Makie.to_font(fonts, font)) :
                 Makie.to_font(font)
             cand = label_candidate(tick_id, Point2d(pos...), text, nfont,
-                fontsize, rotation, align, comp, arc)
+                fontsize, rotation, align, comp, arc; side = _label_side(n))
             push!(candidates, (cand, side_matches))
             break   # one label per curve by default
         end
