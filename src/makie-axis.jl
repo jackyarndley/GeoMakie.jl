@@ -29,6 +29,18 @@ function axis_setup!(axis::GeoAxis)
     end
     notify(axis.layoutobservables.suggestedbbox)
     Makie.register_events!(axis, scene)
+    # Track drag-pan activity so graticules/labels can use the interactive
+    # (coarser) quality level while the camera is moving.
+    on(scene.events.mousebutton) do event
+        if event.action == MouseEventTypes.press
+            axis.interaction_active[] = true
+        elseif event.action == MouseEventTypes.release
+            Timer(0.2) do _
+                axis.interaction_active[] = false
+            end
+        end
+        return Consume(false)
+    end
     on(scene, axis.limits) do _
         if !axis.block_limit_linking[]
             _propagate_geographic_limits!(axis)
@@ -438,6 +450,7 @@ function Makie.process_interaction(r::Makie.RectangleZoom, event::MouseEvent, ax
     # and targetlimits is in transformed space, so we don't need to transform it
 
     if event.type === MouseEventTypes.leftdragstart
+        ax.interaction_active[] = true
         data = event.data
         prev_data = event.prev_data
         
@@ -448,6 +461,7 @@ function Makie.process_interaction(r::Makie.RectangleZoom, event::MouseEvent, ax
         return Consume(true)
 
     elseif event.type === MouseEventTypes.leftdrag
+        ax.interaction_active[] = true
         # clamp mouse data to shown limits
         rect = ax.finallimits[]
         data = Makie.rectclamp(event.data, rect)
@@ -457,6 +471,7 @@ function Makie.process_interaction(r::Makie.RectangleZoom, event::MouseEvent, ax
         return Consume(true)
 
     elseif event.type === MouseEventTypes.leftdragstop
+        ax.interaction_active[] = false
         try
             r.callback(r.rectnode[])
         catch e
@@ -511,6 +526,10 @@ function Makie.process_interaction(s::Makie.ScrollZoom, event::Makie.ScrollEvent
     cam = Makie.camera(scene)
 
     if zoom != 0
+        ax.interaction_active[] = true
+        Timer(0.3) do _
+            ax.interaction_active[] = false
+        end
         pa = Makie.pixelarea(scene)[]
 
         z = (1.0f0 - s.speed)^zoom

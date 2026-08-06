@@ -51,6 +51,11 @@ Current internal modules (`src/geoaxis/`):
   `linkaxes!` share longitude/latitude extents (never projected camera
   rectangles), with PROJ-based source-CRS validation and interactive camera
   propagation through `linked_geographic_limits`.
+- `caching.jl` — bounded per-axis caches (`AxisCache`) for projection
+  boundaries, adaptive graticules and placed labels, plus a bounded shared
+  text-measurement cache. `interaction_active` selects coarse interactive
+  quality (coarser resampling, cached geometry, no label optimisation) versus
+  full final quality after interaction settles.
 
 ## Status and follow-up work
 
@@ -67,6 +72,8 @@ Implemented in this milestone:
   (`test/wrapped_limits.jl`).
 - Geographic linking across projections, central meridians, wrapped limits and
   interactive camera changes (`test/linking.jl`).
+- Cache hit/eviction and interactive-quality switching
+  (`test/caching.jl`), with measurements in `benchmark/interactions.jl`.
 - Unified polar-map support: polar, azimuthal, perspective and orthographic
   maps are ordinary `GeoAxis` instances configured with a destination PROJ
   string and geographic limits. There is no separate `GeoPolarAxis` type.

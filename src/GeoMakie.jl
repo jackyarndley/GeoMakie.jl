@@ -60,6 +60,7 @@ include("geoaxis/graticule.jl")  # adaptive graticule engine (GeoAxis v2)
 include("geoaxis/labels.jl")     # boundary-aware tick labels (GeoAxis v2)
 include("geoaxis/layout.jl")     # exact decoration protrusions (GeoAxis v2)
 include("geoaxis/longitude.jl")  # wrapped longitude intervals (GeoAxis v2)
+include("geoaxis/caching.jl")    # bounded per-axis caches (GeoAxis v2)
 
 include("geoaxis.jl")
 include("contoursplitting_geo.jl") # seam-aware filled contours on a GeoAxis

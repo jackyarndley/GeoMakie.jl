@@ -25,6 +25,8 @@ Makie.@Block GeoAxis <: Makie.AbstractAxis begin
     block_limit_linking::Ref{Bool}
     suppress_projected_propagation::Ref{Bool}
     linked_geographic_limits::Observable{Union{Nothing, GeographicLimits}}
+    cache::AxisCache
+    interaction_active::Observable{Bool}
     mouseeventhandle::Makie.MouseEventHandle
     scrollevents::Observable{Makie.ScrollEvent}
     keysevents::Observable{Makie.KeysEvent}
@@ -557,6 +559,8 @@ function Makie.initialize_block!(axis::GeoAxis)
     setfield!(axis, :suppress_projected_propagation, Ref(false))
     setfield!(axis, :linked_geographic_limits,
         Observable{Union{Nothing, GeographicLimits}}(nothing; ignore_equal_values = true))
+    setfield!(axis, :cache, AxisCache())
+    setfield!(axis, :interaction_active, Observable(false; ignore_equal_values = true))
 
     # Set up the axis for the Scene, mostly using Makie's existing functionality
     scene = axis_setup!(axis)
@@ -606,8 +610,10 @@ function Makie.initialize_block!(axis::GeoAxis)
     # project them.  Those are stored in Observables which are used to produce
     # lineplots later on that form the grid.
     # TODO: implement a minor grid.
-    onany(scene, axis.xticks, axis.yticks, transform_ticks_obs, finallimits, vp_unchanged;
-        update=true) do user_xticks, user_yticks, trans, fl, vp
+    onany(scene, axis.xticks, axis.yticks, transform_ticks_obs, finallimits, vp_unchanged,
+        axis.interaction_active;
+        update=true) do user_xticks, user_yticks, trans, fl, vp, interactive
+        quality_scale = interactive ? 0.25 : 1.0
 
         lon_transformed = Point2d[]
         lat_transformed = Point2d[]
@@ -632,7 +638,7 @@ function Makie.initialize_block!(axis::GeoAxis)
         rotated = clip isa AntimeridianClip
         gridproj = _projector(rotated ?
             create_transform(_centred_dest(to_value(axis.dest)), "+proj=longlat +datum=WGS84") : trans)
-        gridscale = resample_scale(gridproj)
+        gridscale = resample_scale(gridproj) * quality_scale
 
         # The antimeridian is one physical meridian, but it appears as a tick at both -180° and
         # +180°. Pseudocylindrical/interrupted frames map those to distinct map edges (draw both);
@@ -660,8 +666,11 @@ function Makie.initialize_block!(axis::GeoAxis)
         # Adaptive graticule geometry through the shared sphere-clip pipeline.
         gp = geoprojection(to_value(axis.dest), to_value(axis.source))
         extent = (Float64(xlims[1]), Float64(xlims[2]), Float64(ylims[1]), Float64(ylims[2]))
-        curves = generate_graticule(gp, xticks_draw, yticks, extent;
-            project = gridproj, scale = gridscale, rotated = rotated)
+        gkey = (to_value(axis.dest), to_value(axis.source), extent,
+            length(xticks_draw), length(yticks), quality_scale)
+        curves = getcache!(axis.cache.graticules, gkey, () ->
+            generate_graticule(gp, xticks_draw, yticks, extent;
+                project = gridproj, scale = gridscale, rotated = rotated))
         for c in curves
             target = c.kind === :meridian ? lon_transformed : lat_transformed
             append!(target, c.projected_geometry)
@@ -672,11 +681,13 @@ function Makie.initialize_block!(axis::GeoAxis)
         latticks_line_obs[] = lat_transformed
         graticule_obs[] = curves
         ticks_obs[] = (Float64.(xticks_draw), Float64.(yticks))
-        boundary = try
-            boundary_points(to_value(axis.dest), to_value(axis.source))
-        catch
-            Point2d[]
-        end
+        bkey = (to_value(axis.dest), to_value(axis.source))
+        boundary = getcache!(axis.cache.boundary, bkey, () ->
+            try
+                boundary_points(to_value(axis.dest), to_value(axis.source))
+            catch
+                Point2d[]
+            end)
         update_geoviewport!(viewport_obs, gp, limit_rect, boundary)
         notify(spines_obs)
         return
@@ -692,11 +703,12 @@ function Makie.initialize_block!(axis::GeoAxis)
     # Projection-domain outline (the d3 `.sphere()` boundary of the active clip), drawn as the
     # axis spine: limb circle for azimuthal horizons, ellipse/rectangle for cylindricals.
     boundary_obs = lift(axis.dest, axis.source) do dest, src
-        try
-            boundary_points(dest, src)
-        catch
-            Point2d[]
-        end
+        getcache!(axis.cache.boundary, (dest, src), () ->
+            try
+                boundary_points(dest, src)
+            catch
+                Point2d[]
+            end)
     end
     spineplot = lines!(scene, boundary_obs; color=axis.spinecolor, linewidth=axis.spinewidth,
         visible=axis.spinevisible, transparency=true, inspectable=false)
@@ -785,18 +797,34 @@ function Makie.initialize_block!(axis::GeoAxis)
             parallel_curves = project_curves_px(
                 [c for c in curves if c.kind === :parallel], project_px)
 
-            lon_cands = place_graticule_labels(meridian_curves, xt, :meridian, boundary_px;
-                side = axis.xaxisposition[], ticklabelpad = axis.xticklabelpad[],
-                ticksize = axis.xticksize[], tickalign = axis.xtickalign[],
-                rotation = axis.xticklabelrotation[], alignment = axis.xticklabelalign[],
-                font = axis.xticklabelfont[], fonts = fonts,
-                fontsize = axis.xticklabelsize[], format = axis.xtickformat[])
-            lat_cands = place_graticule_labels(parallel_curves, yt, :parallel, boundary_px;
-                side = axis.yaxisposition[], ticklabelpad = axis.yticklabelpad[],
-                ticksize = axis.yticksize[], tickalign = axis.ytickalign[],
-                rotation = axis.yticklabelrotation[], alignment = axis.yticklabelalign[],
-                font = axis.yticklabelfont[], fonts = fonts,
-                fontsize = axis.yticklabelsize[], format = axis.ytickformat[])
+            quality = axis.interaction_active[] ? :interactive : :final
+            vpw = vp.widths[1] ÷ 8
+            vph = vp.widths[2] ÷ 8
+            lkey = (
+                to_value(axis.dest), to_value(axis.source),
+                xt, yt, Int(vpw), Int(vph), quality,
+                axis.xaxisposition[], axis.yaxisposition[],
+                (Float64(axis.xticklabelpad[]), Float64(axis.yticklabelpad[]),
+                    Float64(axis.xticksize[]), Float64(axis.yticksize[]),
+                    Float64(axis.xtickalign[]), Float64(axis.ytickalign[]),
+                    Float64(axis.xticklabelsize[]), Float64(axis.yticklabelsize[])),
+            )
+            lon_cands = getcache!(axis.cache.labels, (lkey..., :meridian), () ->
+                place_graticule_labels(meridian_curves, xt, :meridian, boundary_px;
+                    side = axis.xaxisposition[], ticklabelpad = axis.xticklabelpad[],
+                    ticksize = axis.xticksize[], tickalign = axis.xtickalign[],
+                    rotation = axis.xticklabelrotation[], alignment = axis.xticklabelalign[],
+                    font = axis.xticklabelfont[], fonts = fonts,
+                    fontsize = axis.xticklabelsize[], format = axis.xtickformat[],
+                    quality = quality))
+            lat_cands = getcache!(axis.cache.labels, (lkey..., :parallel), () ->
+                place_graticule_labels(parallel_curves, yt, :parallel, boundary_px;
+                    side = axis.yaxisposition[], ticklabelpad = axis.yticklabelpad[],
+                    ticksize = axis.yticksize[], tickalign = axis.ytickalign[],
+                    rotation = axis.yticklabelrotation[], alignment = axis.yticklabelalign[],
+                    font = axis.yticklabelfont[], fonts = fonts,
+                    fontsize = axis.yticklabelsize[], format = axis.ytickformat[],
+                    quality = quality))
 
             lon_labels[] = lon_cands
             lat_labels[] = lat_cands
