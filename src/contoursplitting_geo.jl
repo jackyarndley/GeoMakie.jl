@@ -111,18 +111,39 @@ function _child_transformfunc(axis, source)
     end
 end
 
+# Yield `(user_index, polygon)` pairs for a user geometry: one entry per flattened polygon,
+# tagged with the index of the user Polygon/MultiPolygon it came from. This lets per-element
+# colour vectors (one colour per user polygon/MultiPolygon) be replicated onto every piece
+# even when `_collect_polys` expands MultiPolygon components.
+function _user_polys(geom)
+    if geom isa GeometryBasics.Polygon || geom isa GeometryBasics.MultiPolygon
+        return Tuple{Int, GeometryBasics.Polygon{2, Float32}}[(1, p) for p in _collect_polys(geom)]
+    elseif geom isa AbstractVector
+        pairs = Tuple{Int, GeometryBasics.Polygon{2, Float32}}[]
+        for (k, g) in enumerate(geom)
+            for p in _collect_polys(g)
+                push!(pairs, (k, p))
+            end
+        end
+        return pairs
+    else
+        return Tuple{Int, GeometryBasics.Polygon{2, Float32}}[(1, p) for p in _collect_polys(geom)]
+    end
+end
+
 # Split a vector of polygons at the destination discontinuity in the correct frame, returning
-# the split polygons and a `group` vector mapping each output piece back to its input polygon
-# (so per-polygon colours can be replicated). Mirrors the contourf path for `poly!`/`land`.
+# the split polygons and a `group` vector mapping each output piece back to its input user
+# geometry element (so per-element colours can be replicated). Mirrors the contourf path.
 function _split_geom(geom, dest, source)
     ftf = create_transform(dest, source); clip = clip_strategy(ftf)
     polys = GeometryBasics.Polygon{2,Float32}[]; group = Int[]
-    clip isa NoClip && (for (k, p) in enumerate(_collect_polys(geom)); push!(polys, p); push!(group, k); end; return (polys, group))
+    user_pairs = _user_polys(geom)
+    clip isa NoClip && (for (k, p) in user_pairs; push!(polys, p); push!(group, k); end; return (polys, group))
     rotated = clip isa AntimeridianClip || clip isa ObliqueAntimeridianClip
     project = _projector(clip isa ObliqueAntimeridianClip ? clip.centred :
                          clip isa AntimeridianClip ? create_transform(_centred_dest(dest), source) : ftf)
     scale = resample_scale(project)
-    for (k, p) in enumerate(_collect_polys(geom))
+    for (k, p) in user_pairs
         pieces = _split_polygon(clip, _poly_rings(p), project, scale; rotated = rotated)
         append!(polys, pieces); append!(group, fill(k, length(pieces)))
     end
@@ -143,8 +164,14 @@ function _poly_split_plot!(axis::GeoAxis, plot)
     Makie.plot!(axis.scene, plot); plot.visible = false
     split = lift(_split_geom, plot[1], axis.dest, source)
     splitpolys = lift(first, split)
-    splitcolor = lift(plot.color, split) do col, s
-        (col isa AbstractVector && length(col) == maximum(s[2]; init = 0)) ? col[s[2]] : col
+    splitcolor = lift(plot.color, plot[1], split) do col, geom, s
+        # `s[2]` maps every flattened/clipped output piece back to its input
+        # geometry element. Per-element colour vectors (one colour per user
+        # polygon/MultiPolygon) are replicated onto the pieces; the input
+        # count is the user-geometry length, not the flattened piece count,
+        # because `_collect_polys` expands MultiPolygon components.
+        ninput = geom isa AbstractVector ? length(geom) : 1
+        (col isa AbstractVector && length(col) == ninput) ? col[s[2]] : col
     end
     # draw the split geometry straight into the axis scene with the matching (centred/full)
     # transform; the original `plot` stays an unrealised handle (returned to the caller).
