@@ -25,6 +25,14 @@ All notable changes to this project are documented in this file.
 - CI now covers the minimum/latest Julia releases, nightly (allowed failure),
   the oldest permitted direct dependencies, every supported Makie series, and
   both CairoMakie and GLMakie backends.
+- `Makie` compatibility floor is `0.24.13`: earlier `0.24.x` patches predate
+  the compute-pipeline `map!(plot, inputs, outputs)` API used by the
+  `meshimage` recipe and do not propagate `PlotList` child transformations on
+  a `GeoAxis`.
+- Great-circle distance/interpolation helpers used by the adaptive resampler
+  are implemented locally instead of delegating to GeometryOps' non-public
+  `UnitSpherical` module, whose semantics changed across `GeometryOps 0.1.x`
+  and produced non-finite boundary points on older permitted versions.
 
 ### Changed
 
