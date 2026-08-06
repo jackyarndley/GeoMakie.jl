@@ -35,6 +35,11 @@ All notable changes to this project are documented in this file.
   frames rerun full resampling and label placement once interaction settles.
 - `benchmark/interactions.jl` for construction, graticule, label, resize,
   pan/zoom, projection-change and nine-panel measurements.
+- Projection-domain boundary strategies (`AnalyticBoundary`,
+  `CircularBoundary`, `SphericalPolygonBoundary`, `AdaptiveBoundary`) selected
+  through `ProjectionTraits`, with component identity (`ProjectionBoundary`,
+  `boundary_components`, `boundary_segments`) and a robust adaptive fallback
+  for projections without analytic outlines (e.g. Guyou).
 - CI now covers the minimum/latest Julia releases, nightly (allowed failure),
   the oldest permitted direct dependencies, every supported Makie series, and
   both CairoMakie and GLMakie backends.

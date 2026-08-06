@@ -56,6 +56,11 @@ Current internal modules (`src/geoaxis/`):
   text-measurement cache. `interaction_active` selects coarse interactive
   quality (coarser resampling, cached geometry, no label optimisation) versus
   full final quality after interaction settles.
+- `boundaries.jl` — projection-domain boundary strategies selected through
+  `ProjectionTraits`: analytic antimeridian/conic outlines, circular azimuthal
+  horizons, spherical-polygon interrupted lobes, and an adaptive sampled-hull
+  fallback. `ProjectionBoundary`/`boundary_components`/`boundary_segments`
+  retain component identity for labels and spines.
 
 ## Status and follow-up work
 
@@ -74,6 +79,8 @@ Implemented in this milestone:
   interactive camera changes (`test/linking.jl`).
 - Cache hit/eviction and interactive-quality switching
   (`test/caching.jl`), with measurements in `benchmark/interactions.jl`.
+- Boundary strategy selection, adaptive fallback, component identity and
+  NaN-separated boundary segments (`test/boundaries.jl`).
 - Unified polar-map support: polar, azimuthal, perspective and orthographic
   maps are ordinary `GeoAxis` instances configured with a destination PROJ
   string and geographic limits. There is no separate `GeoPolarAxis` type.
