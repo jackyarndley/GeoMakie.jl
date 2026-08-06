@@ -64,6 +64,7 @@ include("geoaxis/longitude.jl")  # wrapped longitude intervals (GeoAxis v2)
 include("geoaxis/caching.jl")    # bounded per-axis caches (GeoAxis v2)
 
 include("geoaxis.jl")
+include("geoaxis/makie_compat.jl")  # copied Makie-private compatibility code (GeoAxis v2)
 include("contoursplitting_geo.jl") # seam-aware filled contours on a GeoAxis
 include("makie-axis.jl")
 include("geoaxis/linking.jl")      # geographic GeoAxis linking (GeoAxis v2)
