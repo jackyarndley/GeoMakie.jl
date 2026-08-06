@@ -607,6 +607,31 @@ function Makie.initialize_block!(axis::GeoAxis)
         xlims = Makie.xlimits(limits_t)
         ylims = Makie.ylimits(limits_t)
 
+        # Azimuthal/perspective projections reject points outside their domain,
+        # so inverting an interim/default camera rectangle can yield non-finite
+        # geographic bounds at construction or during limit resets. Fall back to
+        # the geographic extent of the visible projected boundary, then to the
+        # full globe, so graticule/tick code never ranges over Inf/NaN.
+        if !all(isfinite, xlims) || !all(isfinite, ylims)
+            gp0 = geoprojection(to_value(axis.dest), to_value(axis.source))
+            bkey0 = (to_value(axis.dest), to_value(axis.source))
+            boundary0 = getcache!(axis.cache.boundary, bkey0, () ->
+                try
+                    boundary_points(gp0)
+                catch
+                    Point2d[]
+                end)
+            geo0 = geographic_extent_from_projected(gp0,
+                [p for p in boundary0 if p in limit_rect])
+            if geo0 === nothing
+                xlims = (-180.0, 180.0)
+                ylims = (-90.0, 90.0)
+            else
+                xlims = (geo0[1], geo0[2])
+                ylims = (geo0[3], geo0[4])
+            end
+        end
+
         xticks = user_xticks isa Makie.Automatic ? geoticks(-180, 180, xlims...) : Makie.get_tickvalues(user_xticks, xlims...)
         yticks = user_yticks isa Makie.Automatic ? geoticks(-90, 90, ylims...) : Makie.get_tickvalues(user_yticks, ylims...)
 
