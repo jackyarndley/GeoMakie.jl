@@ -90,7 +90,7 @@ jobs:
               Pkg.PackageSpec(name = "Geodesy", version = "1.1.0"),
               Pkg.PackageSpec(name = "CoordinateTransformations", version = "0.6.3"),
             ])
-            Pkg.test()'
+            Pkg.test("GeoMakie")'
         shell: bash
 
   makie:
@@ -117,7 +117,7 @@ jobs:
             Pkg.activate(; temp = true)
             Pkg.develop(path = ".")
             Pkg.add(Pkg.PackageSpec(name = "Makie", version = "${{ matrix.makie }}"))
-            Pkg.test()'
+            Pkg.test("GeoMakie")'
         env:
           GEOMAKIE_TEST_BACKEND: cairo
         shell: bash
