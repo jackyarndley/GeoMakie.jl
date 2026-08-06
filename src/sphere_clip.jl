@@ -42,8 +42,9 @@ distance-based, not seam-aware or projection-adaptive).
 What DOES defer to the lower-level packages:
 - planar helpers on already-projected points (the oblique-square boundary's convex hull and
   Douglas–Peucker simplify) defer to `GO.convex_hull` / `GO.simplify`;
-- the great-circle interpolation (`_geo_interp`) and angular distance (`_gcdist_deg`) used by the
-  boundary builders defer to `GO.UnitSpherical.slerp` / `spherical_distance`.
+- great-circle interpolation (`_geo_interp`), angular distance (`_gcdist_deg`) and geodesic
+  distance (`_cp_dist`) are implemented locally: GeometryOps' `UnitSpherical` module is not
+  public API and its semantics changed across GeometryOps 0.1.x.
 
 Deliberately NOT delegated (investigated, see HANDOFF.md):
 - the `PolygonClip` spherical clip (`_clip_against_polygon`) is NOT routed through
@@ -60,19 +61,15 @@ const _R2D = 180 / π
 const _EPS = 1.0e-6             # d3 epsilon (radians)
 const _EPS2 = 1.0e-12           # d3 epsilon2 (squared tolerance for exact-point tests)
 
-# Lower-level spherical primitives we delegate to GeometryOps.UnitSpherical (a tuple ⇄
-# UnitSphericalPoint conversion that benchmarks neutral, see HANDOFF P2). Used for the
-# great-circle interpolation (`slerp`, antipodal-robust) and angular distance
-# (`spherical_distance`) in the boundary builders below. The hand-rolled `NTuple{3}` math
-# primitives and the line-by-line d3 ports are kept as-is: they benchmark identical and
-# mirror the d3-geo source for verifiability.
-const _US_FROM_GEO = GO.UnitSpherical.UnitSphereFromGeographic()  # (lon,lat)° → UnitSphericalPoint
-const _GEO_FROM_US = GO.UnitSpherical.GeographicFromUnitSphere()  # UnitSphericalPoint → (lon,lat)°
-
-# unit cartesian of a lon/lat (degrees), delegated to UnitSpherical's `UnitSphereFromGeographic`
-# (identical maths: sinϕ·cosθ with ϕ=90−lat, θ=lon; benchmarks identical to the hand-rolled form).
-# Returns the `NTuple{3,Float64}` the d3 ports thread through.
-@inline _cart(lon, lat) = (p = _US_FROM_GEO((Float64(lon), Float64(lat))); (p[1], p[2], p[3]))
+# Unit cartesian of a lon/lat (degrees). GeometryOps' `UnitSpherical` module is not public
+# API and its conversion/slerp semantics changed across GeometryOps 0.1.x, so the
+# great-circle primitives are kept local: identical maths to the old delegation
+# (sinϕ·cosθ with ϕ=90−lat, θ=lon), and resampling is GeoMakie's own responsibility —
+# PROJ remains the only projection/CRS mathematics backend.
+@inline _cart(lon, lat) = begin
+    lo = lon * _D2R; la = lat * _D2R
+    (cos(la) * cos(lo), cos(la) * sin(lo), sin(la))
+end
 # unit cartesian -> (lon,lat) degrees. Kept hand-rolled: UnitSpherical's `GeographicFromUnitSphere`
 # does NOT `clamp(z, -1, 1)`, so on a normalised vector with |z| a hair over 1 (FP) it throws a
 # DomainError where this must stay total. (Filed upstream; see HANDOFF.)
@@ -468,12 +465,12 @@ const _BOUNDARY_CACHE_LOCK = ReentrantLock()
 # Oblique squares (spilhaus/guyou/…): trace the projected outline by binary-searching, in many
 # directions from the projected centre, the radius where the inverse stops being finite, then
 # inverse-project (inset by R) to get a single spherical boundary ring. (d3 streams `.sphere()`.)
-# great-circle distance (degrees) between two lon/lat points (delegated to UnitSpherical's
-# `spherical_distance`, the numerically-stable atan2(‖a×b‖, a·b) form; matches the old
-# acos-of-dot to ~1e-6° and is stable for near-coincident points).
-_gcdist_deg(a, b) = _R2D * GO.UnitSpherical.spherical_distance(
-    _US_FROM_GEO((Float64(a[1]), Float64(a[2]))), _US_FROM_GEO((Float64(b[1]), Float64(b[2])))
-)
+# great-circle distance (degrees) between two lon/lat points: the numerically-stable
+# atan2(‖a×b‖, a·b) form, stable for near-coincident points.
+function _gcdist_deg(a, b)
+    va = _cart(a[1], a[2]); vb = _cart(b[1], b[2])
+    return _R2D * atan(norm(_cross3(va, vb)), _dot3(va, vb))
+end
 
 # Exterior ring of a GI polygon as an OPEN Point2d vector (drop the closing duplicate vertex, if
 # any). Used to read back GeometryOps' convex-hull / simplify output for the boundary trace below.
@@ -569,16 +566,23 @@ const _IGH_O_LOBES = (
     ),
 )
 # Great-circle interpolation at fraction `s` between two lon/lat° points, returning (lon,lat)°.
-# Delegated to UnitSpherical's `slerp` (S2 tangent-vector form): machine-precision-identical to
-# the old sin-weighted formula on all non-antipodal inputs, and antipodal-robust where the old
-# `1/sin(Ω)` divisor blew up. Boundary edges here are never near-antipodal, so this is a pure
-# robustness upgrade at neutral cost.
+# Local slerp (GeometryOps' UnitSpherical is not public API and changed across 0.1.x).
+# Antipodal/near-antipodal inputs fall back to an arbitrary orthogonal great circle instead
+# of dividing by sin(ω) = 0.
 function _geo_interp(a, b, s)
-    p = GO.UnitSpherical.slerp(
-        _US_FROM_GEO((Float64(a[1]), Float64(a[2]))),
-        _US_FROM_GEO((Float64(b[1]), Float64(b[2]))), s
-    )
-    return _GEO_FROM_US(p)
+    va = _cart(a[1], a[2]); vb = _cart(b[1], b[2])
+    ω = acos(clamp(_dot3(va, vb), -1.0, 1.0))
+    if ω < 1.0e-12
+        v = va
+    elseif ω < π - 1.0e-12
+        sinω = sin(ω)
+        v = (sin((1 - s) * ω) .* va .+ sin(s * ω) .* vb) ./ sinω
+    else
+        t = abs(va[1]) < 0.9 ? _normalize3(_cross3(va, (1.0, 0.0, 0.0))) :
+                               _normalize3(_cross3(va, (0.0, 1.0, 0.0)))
+        v = cos(s * π) .* va .+ sin(s * π) .* t
+    end
+    return _sph(v)
 end
 function _interrupted_boundary(lobes, lon0)
     poly = Point2d[]
@@ -625,11 +629,8 @@ struct _CPt
     t::Float64
 end
 _randsign(i, j) = sign(sin(100 * i + j))
-# geodesic distance between two cartesian unit vectors; UnitSpherical's `spherical_distance` is the
-# identical atan2(‖a×b‖, a·b) form; the NTuple→UnitSphericalPoint wrap is allocation-free.
-_cp_dist(a, b) = GO.UnitSpherical.spherical_distance(
-    GO.UnitSpherical.UnitSphericalPoint(a), GO.UnitSpherical.UnitSphericalPoint(b)
-)
+# geodesic distance (radians) between two cartesian unit vectors: atan2(‖a×b‖, a·b).
+_cp_dist(a, b) = atan(norm(_cross3(a, b)), _dot3(a, b))
 _cp_sort(a, b) = a.index != b.index ? float(a.index - b.index) : (a.t - b.t)
 
 # Port of d3-geo-polygon clipPolygon's clipLine, on one polyline (radians). Returns the visible
