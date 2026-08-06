@@ -179,6 +179,10 @@ Makie.@Block GeoAxis <: Makie.AbstractAxis begin
         xticklabelalign::Union{Makie.Automatic, Tuple{Symbol, Symbol}} = Makie.automatic
         "The horizontal and vertical alignment of the yticklabels."
         yticklabelalign::Union{Makie.Automatic, Tuple{Symbol, Symbol}} = Makie.automatic
+        "Label placement for longitude (x) tick labels: `:outside`, `:inline` or `:auto`."
+        xticklabelplacement::Symbol = :outside
+        "Label placement for latitude (y) tick labels: `:outside`, `:inline` or `:auto`."
+        yticklabelplacement::Symbol = :outside
         "The size of the xtick marks."
         xticksize::Float64 = 6f0
         "The size of the ytick marks."
@@ -805,6 +809,7 @@ function Makie.initialize_block!(axis::GeoAxis)
                 to_value(axis.dest), to_value(axis.source),
                 xt, yt, Int(vpw), Int(vph), quality,
                 axis.xaxisposition[], axis.yaxisposition[],
+                axis.xticklabelplacement[], axis.yticklabelplacement[],
                 (Float64(axis.xticklabelpad[]), Float64(axis.yticklabelpad[]),
                     Float64(axis.xticksize[]), Float64(axis.yticksize[]),
                     Float64(axis.xtickalign[]), Float64(axis.ytickalign[]),
@@ -817,7 +822,7 @@ function Makie.initialize_block!(axis::GeoAxis)
                     rotation = axis.xticklabelrotation[], alignment = axis.xticklabelalign[],
                     font = axis.xticklabelfont[], fonts = fonts,
                     fontsize = axis.xticklabelsize[], format = axis.xtickformat[],
-                    quality = quality))
+                    quality = quality, placement = axis.xticklabelplacement[]))
             lat_cands = getcache!(axis.cache.labels, (lkey..., :parallel), () ->
                 place_graticule_labels(parallel_curves, yt, :parallel, boundary_px;
                     side = axis.yaxisposition[], ticklabelpad = axis.yticklabelpad[],
@@ -825,7 +830,7 @@ function Makie.initialize_block!(axis::GeoAxis)
                     rotation = axis.yticklabelrotation[], alignment = axis.yticklabelalign[],
                     font = axis.yticklabelfont[], fonts = fonts,
                     fontsize = axis.yticklabelsize[], format = axis.ytickformat[],
-                    quality = quality))
+                    quality = quality, placement = axis.yticklabelplacement[]))
 
             lon_labels[] = lon_cands
             lat_labels[] = lat_cands

@@ -40,6 +40,12 @@ All notable changes to this project are documented in this file.
   through `ProjectionTraits`, with component identity (`ProjectionBoundary`,
   `boundary_components`, `boundary_segments`) and a robust adaptive fallback
   for projections without analytic outlines (e.g. Guyou).
+- Label placement modes: `xticklabelplacement`/`yticklabelplacement` accept
+  `:outside` (default), `:inline` (labels on/near graticules inside the map,
+  rotated to follow curve tangents) and `:auto` (outside). `LabelCandidate`
+  now carries tangent, boundary tangent, preferred side and placement class,
+  and a deterministic local-improvement pass shifts rejected labels along the
+  boundary to keep more of them.
 - CI now covers the minimum/latest Julia releases, nightly (allowed failure),
   the oldest permitted direct dependencies, every supported Makie series, and
   both CairoMakie and GLMakie backends.

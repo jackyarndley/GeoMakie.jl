@@ -24,6 +24,7 @@ Makie.set_theme!(Theme(
     @testset "Linking" include("linking.jl")
     @testset "Caching" include("caching.jl")
     @testset "Boundaries" include("boundaries.jl")
+    @testset "LabelLayout" include("label_layout.jl")
     @testset "MeshImage" include("meshimage.jl")
     @testset "GeoAxis" include("geoaxis.jl")
     @testset "PolarGeoAxis" include("polar_geoaxis.jl")
