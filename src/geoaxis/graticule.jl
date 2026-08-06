@@ -29,6 +29,9 @@ GraticuleCurve(coordinate, kind, geographic_geometry) =
 # the adaptive densification that determines actual geometric accuracy.
 function geographic_graticule(lons, lats, extent::NTuple{4, Float64}; n = 121)
     lonlo, lonhi, latlo, lathi = extent
+    if !(all(isfinite, (lonlo, lonhi, latlo, lathi)) && lonlo <= lonhi && latlo <= lathi)
+        return GraticuleCurve[]
+    end
     curves = GraticuleCurve[]
     for lon in lons
         pts = Point2d[Point2d(lon, lat) for lat in range(latlo, lathi; length = n)]

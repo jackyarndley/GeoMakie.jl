@@ -46,4 +46,18 @@
         @test_nowarn poly!(ga, mps; color = colors, strokecolor = :black, strokewidth = 1.3)
         @test_nowarn (save(tempname() * ".png", fig); true)
     end
+
+    @testset "azimuthal/globular gallery projections keep finite graticule extents" begin
+        # Inverting an interim/default camera rectangle can produce non-finite
+        # geographic bounds for projections with a bounded domain (airy, aeqd,
+        # apian, august, ...). Construction, layout and rendering must stay
+        # finite instead of ranging a graticule over Inf/NaN.
+        for dest in ("+proj=airy", "+proj=aeqd", "+proj=apian", "+proj=august")
+            fig = Figure()
+            ga = GeoAxis(fig[1, 1]; dest = dest, title = dest)
+            hidedecorations!(ga; grid = false)
+            @test_nowarn Makie.update_state_before_display!(fig)
+            @test_nowarn (save(tempname() * ".png", fig); true)
+        end
+    end
 end
