@@ -28,6 +28,13 @@ All notable changes to this project are documented in this file.
 - Geographic `GeoAxis` linking: `linkxaxes!`, `linkyaxes!`, `linkaxes!` and
   `unlinkaxes!` share geographic extents between axes while each axis projects
   independently.
+- Bounded per-axis caches for projection boundaries, adaptive graticules and
+  placed label candidates, plus a bounded thread-safe text-measurement cache.
+- Two-quality interaction rendering: interactive frames use coarser
+  resampling, cached geometry and deduplicated (non-optimised) labels; final
+  frames rerun full resampling and label placement once interaction settles.
+- `benchmark/interactions.jl` for construction, graticule, label, resize,
+  pan/zoom, projection-change and nine-panel measurements.
 - CI now covers the minimum/latest Julia releases, nightly (allowed failure),
   the oldest permitted direct dependencies, every supported Makie series, and
   both CairoMakie and GLMakie backends.

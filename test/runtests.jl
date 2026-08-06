@@ -22,6 +22,7 @@ Makie.set_theme!(Theme(
     @testset "GeoAxisV2" include("geoaxis_v2.jl")
     @testset "WrappedLimits" include("wrapped_limits.jl")
     @testset "Linking" include("linking.jl")
+    @testset "Caching" include("caching.jl")
     @testset "MeshImage" include("meshimage.jl")
     @testset "GeoAxis" include("geoaxis.jl")
     @testset "PolarGeoAxis" include("polar_geoaxis.jl")

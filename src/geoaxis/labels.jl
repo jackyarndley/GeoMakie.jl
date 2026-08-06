@@ -69,7 +69,7 @@ function _text_bbox(str::AbstractString, font, fonts, size::Real)
     nfont = font isa Symbol ?
         (fonts === nothing ? Makie.defaultfont() : Makie.to_font(fonts, font)) :
         Makie.to_font(font)
-    return Makie.text_bb(str, nfont, size)
+    return cached_text_bbox(str, nfont, size)
 end
 
 # Outward unit normal of the boundary at `px` (nearest boundary segment), flipped
@@ -113,7 +113,7 @@ function label_candidate(tick_id::Int, point_px::Point2d, text::String,
         font, fontsize::Real, rotation::Real,
         alignment::Tuple{Symbol, Symbol}, boundary_component::Int,
         boundary_arclength::Float64; interior::Bool = false, side::Symbol = :bottom)
-    bb = Makie.text_bb(text, font, fontsize)
+    bb = cached_text_bbox(text, font, fontsize)
     w = widths(bb)
     # Anchor the measured text box at the candidate position (centred); overlap
     # rejection then compares labels where they actually sit on screen.
@@ -177,7 +177,7 @@ function place_graticule_labels(curves::Vector{GraticuleCurve}, ticks, kind::Sym
         rotation::Real = 0.0, alignment = Makie.automatic,
         font = :regular, fonts = nothing, fontsize::Real = 16.0,
         format = Makie.automatic,
-        allow_duplicates::Bool = false)
+        allow_duplicates::Bool = false, quality::Symbol = :final)
     isempty(boundary_px) && return LabelCandidate[]
     isempty(curves) && return LabelCandidate[]
     if isempty(boundary_px[1]) || length(boundary_px) < 3
@@ -227,6 +227,19 @@ function place_graticule_labels(curves::Vector{GraticuleCurve}, ticks, kind::Sym
     # Stable greedy overlap rejection: sort by boundary arclength so labels on the
     # same boundary component place in a deterministic order.
     sort!(chosen; by = c -> (c.boundary_component, c.boundary_arclength))
+    if quality === :interactive
+        # Interactive frames: deduplicate but skip full overlap optimisation so
+        # the camera can update promptly; final placement runs once interaction
+        # settles.
+        seen = Set{Int}()
+        accepted = LabelCandidate[]
+        for cand in chosen
+            (cand.tick_id in seen && !allow_duplicates) && continue
+            push!(accepted, cand)
+            push!(seen, cand.tick_id)
+        end
+        return accepted
+    end
     accepted = LabelCandidate[]
     seen = Set{Int}()
     for cand in chosen
