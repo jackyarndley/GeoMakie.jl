@@ -20,6 +20,7 @@ Makie.set_theme!(Theme(
     @testset "SphereClip" include("sphere_clip.jl")
     @testset "PR381Fixes" include("pr381_fixes.jl")
     @testset "GeoAxisV2" include("geoaxis_v2.jl")
+    @testset "WrappedLimits" include("wrapped_limits.jl")
     @testset "MeshImage" include("meshimage.jl")
     @testset "GeoAxis" include("geoaxis.jl")
     @testset "PolarGeoAxis" include("polar_geoaxis.jl")
