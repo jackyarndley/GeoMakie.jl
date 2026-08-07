@@ -89,15 +89,19 @@ end
     graticule_boundary_intersections(curve, boundary) -> Vector{Tuple{Point2d,Int,Float64}}
 
 Intersections of a graticule's projected geometry with the projected boundary
-polygon. Returns `(point, boundary_segment_index, boundary_arclength)`.
+polygon. Returns `(point, component_index, boundary_arclength)`. Boundary
+components are processed independently: a flat `Vector{Point2d}` is treated as
+a single component (component index 1), a `Vector{Vector{Point2d}}` or
+`ProjectionBoundary` keeps every component separate so the end of one
+disconnected lobe is never joined to the start of another.
 """
-function graticule_boundary_intersections(curve::GraticuleCurve, boundary::Vector{Point2d})
-    length(boundary) < 2 && return Tuple{Point2d, Int, Float64}[]
+function _component_intersections(curve::GraticuleCurve, comp::Vector{Point2d}, comp_idx::Int)
+    length(comp) < 2 && return Tuple{Point2d, Int, Float64}[]
     out = Tuple{Point2d, Int, Float64}[]
     # Precompute cumulative arclength so intersection `u` maps to a stable arc value.
-    cumlen = zeros(Float64, length(boundary))
-    for i in 2:length(boundary)
-        cumlen[i] = cumlen[i - 1] + norm(boundary[i] .- boundary[i - 1])
+    cumlen = zeros(Float64, length(comp))
+    for i in 2:length(comp)
+        cumlen[i] = cumlen[i - 1] + norm(comp[i] .- comp[i - 1])
     end
     total = cumlen[end]
     pts = curve.projected_geometry
@@ -105,14 +109,32 @@ function graticule_boundary_intersections(curve::GraticuleCurve, boundary::Vecto
     for i in 2:n
         a = pts[i - 1]; b = pts[i]
         (isfinite(a[1]) && isfinite(b[1])) || continue
-        for j in 2:length(boundary)
-            c = boundary[j - 1]; d = boundary[j]
+        for j in 2:length(comp)
+            c = comp[j - 1]; d = comp[j]
             ix = _segment_intersection2(a, b, c, d)
             ix === nothing && continue
             point, u = ix
             arc = (cumlen[j - 1] + u * norm(d .- c)) / max(total, 1.0e-12)
-            push!(out, (point, j - 1, arc))
+            push!(out, (point, comp_idx, arc))
         end
     end
     return out
+end
+
+function graticule_boundary_intersections(curve::GraticuleCurve, boundary::Vector{Point2d})
+    return _component_intersections(curve, boundary, 1)
+end
+
+function graticule_boundary_intersections(curve::GraticuleCurve,
+        boundary::Vector{Vector{Point2d}})
+    out = Tuple{Point2d, Int, Float64}[]
+    for (k, comp) in enumerate(boundary)
+        append!(out, _component_intersections(curve, comp, k))
+    end
+    return out
+end
+
+function graticule_boundary_intersections(curve::GraticuleCurve,
+        boundary::ProjectionBoundary)
+    return graticule_boundary_intersections(curve, boundary.components)
 end

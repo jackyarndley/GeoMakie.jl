@@ -694,7 +694,7 @@ function Makie.initialize_block!(axis::GeoAxis)
         gp = geoprojection(to_value(axis.dest), to_value(axis.source))
         extent = (Float64(xlims[1]), Float64(xlims[2]), Float64(ylims[1]), Float64(ylims[2]))
         gkey = (to_value(axis.dest), to_value(axis.source), extent,
-            length(xticks_draw), length(yticks), quality_scale)
+            Tuple(xticks_draw), Tuple(yticks), quality_scale)
         curves = getcache!(axis.cache.graticules, gkey, () ->
             generate_graticule(gp, xticks_draw, yticks, extent;
                 project = gridproj, scale = gridscale, rotated = rotated))
@@ -709,12 +709,13 @@ function Makie.initialize_block!(axis::GeoAxis)
         graticule_obs[] = curves
         ticks_obs[] = (Float64.(xticks_draw), Float64.(yticks))
         bkey = (to_value(axis.dest), to_value(axis.source))
-        boundary = getcache!(axis.cache.boundary, bkey, () ->
+        boundary_obj = getcache!(axis.cache.boundary, bkey, () ->
             try
-                boundary_points(gp)
+                ProjectionBoundary(boundary_components(gp))
             catch
-                Point2d[]
+                ProjectionBoundary()
             end)
+        boundary = boundary_points(boundary_obj)
         update_geoviewport!(viewport_obs, gp, limit_rect, boundary)
         notify(spines_obs)
         return
@@ -731,12 +732,12 @@ function Makie.initialize_block!(axis::GeoAxis)
     # axis spine: limb circle for azimuthal horizons, ellipse/rectangle for cylindricals.
     boundary_obs = lift(axis.dest, axis.source) do dest, src
         gp = geoprojection(dest, src)
-        getcache!(axis.cache.boundary, (dest, src), () ->
+        boundary_segments(getcache!(axis.cache.boundary, (dest, src), () ->
             try
-                boundary_segments(gp)
+                ProjectionBoundary(boundary_components(gp))
             catch
-                Point2d[]
-            end)
+                ProjectionBoundary()
+            end))
     end
     spineplot = lines!(scene, boundary_obs; color=axis.spinecolor, linewidth=axis.spinewidth,
         visible=axis.spinevisible, transparency=true, inspectable=false)
@@ -815,10 +816,24 @@ function Makie.initialize_block!(axis::GeoAxis)
             fonts = theme(axis.blockscene, :fonts)
             cxp0 = vp.origin[1] + vp.widths[1] / 2
             cyp0 = vp.origin[2] + vp.widths[2] / 2
-            boundary_px = filter(
-                p -> isfinite(p[1]) && isfinite(p[2]) &&
-                    abs(p[1] - cxp0) < 1.0e5 && abs(p[2] - cyp0) < 1.0e5,
-                project_px.(boundary))
+            # Keep projection-boundary components separate through label
+            # placement so interrupted/disconnected lobes never share
+            # intersections, normals or tangents.
+            bkey = (to_value(axis.dest), to_value(axis.source))
+            boundary_obj = getcache!(axis.cache.boundary, bkey, () ->
+                try
+                    ProjectionBoundary(boundary_components(
+                        geoprojection(to_value(axis.dest), to_value(axis.source))))
+                catch
+                    ProjectionBoundary()
+                end)
+            boundary_px = [
+                filter(
+                    p -> isfinite(p[1]) && isfinite(p[2]) &&
+                        abs(p[1] - cxp0) < 1.0e5 && abs(p[2] - cyp0) < 1.0e5,
+                    project_px.(comp))
+                for comp in boundary_obj.components
+            ]
             xt, yt = ticks_obs[]
             meridian_curves = project_curves_px(
                 [c for c in curves if c.kind === :meridian], project_px)
@@ -830,13 +845,18 @@ function Makie.initialize_block!(axis::GeoAxis)
             vph = vp.widths[2] ÷ 8
             lkey = (
                 to_value(axis.dest), to_value(axis.source),
-                xt, yt, Int(vpw), Int(vph), quality,
+                Tuple(xt), Tuple(yt), Int(vpw), Int(vph), quality,
                 axis.xaxisposition[], axis.yaxisposition[],
                 axis.xticklabelplacement[], axis.yticklabelplacement[],
                 (Float64(axis.xticklabelpad[]), Float64(axis.yticklabelpad[]),
                     Float64(axis.xticksize[]), Float64(axis.yticksize[]),
                     Float64(axis.xtickalign[]), Float64(axis.ytickalign[]),
-                    Float64(axis.xticklabelsize[]), Float64(axis.yticklabelsize[])),
+                    Float64(axis.xticklabelsize[]), Float64(axis.yticklabelsize[]),
+                    Float64(axis.xticklabelrotation[]), Float64(axis.yticklabelrotation[]),
+                    axis.xticklabelalign[], axis.yticklabelalign[],
+                    axis.xticklabelfont[], axis.yticklabelfont[],
+                    axis.xtickformat[], axis.ytickformat[],
+                    fonts),
             )
             lon_cands = getcache!(axis.cache.labels, (lkey..., :meridian), () ->
                 place_graticule_labels(meridian_curves, xt, :meridian, boundary_px;
@@ -845,7 +865,8 @@ function Makie.initialize_block!(axis::GeoAxis)
                     rotation = axis.xticklabelrotation[], alignment = axis.xticklabelalign[],
                     font = axis.xticklabelfont[], fonts = fonts,
                     fontsize = axis.xticklabelsize[], format = axis.xtickformat[],
-                    quality = quality, placement = axis.xticklabelplacement[]))
+                    quality = quality, placement = axis.xticklabelplacement[],
+                    center = Point2d(cxp0, cyp0)))
             lat_cands = getcache!(axis.cache.labels, (lkey..., :parallel), () ->
                 place_graticule_labels(parallel_curves, yt, :parallel, boundary_px;
                     side = axis.yaxisposition[], ticklabelpad = axis.yticklabelpad[],
@@ -853,7 +874,8 @@ function Makie.initialize_block!(axis::GeoAxis)
                     rotation = axis.yticklabelrotation[], alignment = axis.yticklabelalign[],
                     font = axis.yticklabelfont[], fonts = fonts,
                     fontsize = axis.yticklabelsize[], format = axis.ytickformat[],
-                    quality = quality, placement = axis.yticklabelplacement[]))
+                    quality = quality, placement = axis.yticklabelplacement[],
+                    center = Point2d(cxp0, cyp0)))
 
             lon_labels[] = lon_cands
             lat_labels[] = lat_cands

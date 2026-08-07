@@ -81,16 +81,17 @@ function _text_bbox(str::AbstractString, font, fonts, size::Real)
     return cached_text_bbox(str, nfont, size)
 end
 
-# Outward unit normal of the boundary at `px` (nearest boundary segment), flipped
-# to point away from the boundary centroid. Falls back to a normal from `dir` when
-# no boundary is available.
-function _outward_normal(px::Point2d, boundary::Vector{Point2d})
-    length(boundary) >= 2 || return Point2d(0.0, -1.0)
-    cx = sum(p -> p[1], boundary) / length(boundary)
-    cy = sum(p -> p[2], boundary) / length(boundary)
+# Outward unit normal of one boundary component at `px` (nearest boundary
+# segment), flipped to point away from that component's centroid. Components are
+# processed independently so interrupted/disconnected boundaries never mix
+# centroids or normals. Falls back to `(0, -1)` when the component is degenerate.
+function _outward_normal(px::Point2d, comp::Vector{Point2d})
+    length(comp) >= 2 || return Point2d(0.0, -1.0)
+    cx = sum(p -> p[1], comp) / length(comp)
+    cy = sum(p -> p[2], comp) / length(comp)
     best = Inf; n = Point2d(0.0, -1.0)
-    for i in 2:length(boundary)
-        a = boundary[i - 1]; b = boundary[i]
+    for i in 2:length(comp)
+        a = comp[i - 1]; b = comp[i]
         # distance from px to segment a-b
         ab = b .- a; L2 = dot(ab, ab)
         t = L2 == 0 ? 0.0 : clamp(dot(px .- a, ab) / L2, 0.0, 1.0)
@@ -104,6 +105,23 @@ function _outward_normal(px::Point2d, boundary::Vector{Point2d})
         end
     end
     return n
+end
+
+# Unit tangent of the nearest boundary segment of one component at `px`.
+function _boundary_tangent_at(px::Point2d, comp::Vector{Point2d})
+    length(comp) >= 2 || return Point2d(0.0, 0.0)
+    best = Inf; t = Point2d(0.0, 0.0)
+    for i in 2:length(comp)
+        a = comp[i - 1]; b = comp[i]
+        ab = b .- a; L2 = dot(ab, ab)
+        u = L2 == 0 ? 0.0 : clamp(dot(px .- a, ab) / L2, 0.0, 1.0)
+        d = norm(px .- (a .+ u .* ab))
+        if d < best
+            best = d
+            norm(ab) > 1.0e-9 && (t = ab ./ norm(ab))
+        end
+    end
+    return t
 end
 
 function _default_alignment(n::Point2d)
@@ -151,7 +169,9 @@ end
 function _parallel_interior_candidate(curve::GraticuleCurve, tick_id::Int, side::Symbol,
         center::Point2d, ticklabelpad::Real, rotation::Real,
         alignment, font, fonts, fontsize::Real, format)
-    pts = filter(p -> isfinite(p[1]) && isfinite(p[2]), curve.projected_geometry)
+    pieces = _finite_pieces(curve.projected_geometry)
+    isempty(pieces) && return nothing
+    pts = reduce(vcat, pieces; init = Point2d[])
     isempty(pts) && return nothing
     anchor = if side === :left
         reduce((a, b) -> b[1] < a[1] ? b : a, pts)
@@ -165,7 +185,7 @@ function _parallel_interior_candidate(curve::GraticuleCurve, tick_id::Int, side:
     n = anchor .- center
     n = norm(n) > 1.0e-9 ? n ./ norm(n) : Point2d(1.0, 0.0)
     pos = anchor .+ n .* ticklabelpad
-    tangent = _curve_tangent_at(pts, anchor)
+    tangent = _curve_tangent_at(curve.projected_geometry, anchor)
     text = _tick_label_string(curve.coordinate, :parallel, format)
     align = alignment === Makie.automatic ? _default_alignment(n) : alignment
     nfont = font isa Symbol ?
@@ -176,10 +196,37 @@ function _parallel_interior_candidate(curve::GraticuleCurve, tick_id::Int, side:
         tangent = tangent, preferred_side = side, placement_class = :inline)
 end
 
+# Split a NaN-separated polyline into its finite pieces so tangents and inline
+# midpoints never span a projection discontinuity.
+function _finite_pieces(pts::Vector{Point2d})
+    pieces = Vector{Point2d}[]
+    current = Point2d[]
+    for p in pts
+        if isfinite(p[1]) && isfinite(p[2])
+            push!(current, p)
+        else
+            isempty(current) || (push!(pieces, current); current = Point2d[])
+        end
+    end
+    isempty(current) || push!(pieces, current)
+    return pieces
+end
+
+# Tangent of the finite curve piece containing `anchor` (nearest point), so a
+# seam-crossing curve never produces a tangent across the NaN separator.
 function _curve_tangent_at(pts::Vector{Point2d}, anchor::Point2d)
-    length(pts) < 2 && return Point2d(1.0, 0.0)
-    _, i = findmin(norm(p .- anchor) for p in pts)
-    a = pts[max(i - 1, 1)]; b = pts[min(i + 1, length(pts))]
+    pieces = _finite_pieces(pts)
+    best = nothing; bestd = Inf
+    for piece in pieces, p in piece
+        d = norm(p .- anchor)
+        if d < bestd
+            bestd = d; best = piece
+        end
+    end
+    best === nothing && return Point2d(1.0, 0.0)
+    length(best) < 2 && return Point2d(1.0, 0.0)
+    _, i = findmin(norm(p .- anchor) for p in best)
+    a = best[max(i - 1, 1)]; b = best[min(i + 1, length(best))]
     t = b .- a
     return norm(t) > 1.0e-9 ? t ./ norm(t) : Point2d(1.0, 0.0)
 end
@@ -189,11 +236,13 @@ end
 # :inline` / `yticklabelplacement = :inline`.
 function _inline_candidate(curve::GraticuleCurve, tick_id::Int, kind::Symbol,
         placement_pad::Real, font, fonts, fontsize::Real, format)
-    pts = filter(p -> isfinite(p[1]) && isfinite(p[2]), curve.projected_geometry)
-    length(pts) < 2 && return nothing
-    i = cld(length(pts), 2)
-    anchor = pts[i]
-    tangent = _curve_tangent_at(pts, anchor)
+    pieces = _finite_pieces(curve.projected_geometry)
+    isempty(pieces) && return nothing
+    piece = argmax(length, pieces)
+    length(piece) < 2 && return nothing
+    i = cld(length(piece), 2)
+    anchor = piece[i]
+    tangent = _curve_tangent_at(piece, anchor)
     normal = Point2d(-tangent[2], tangent[1])
     pos = anchor .+ normal .* placement_pad
     text = _tick_label_string(curve.coordinate, kind, format)
@@ -213,27 +262,36 @@ end
         font, fontsize, format, allow_duplicates=false)
 
 Place labels for graticule curves of one `kind` along the visible projected
-boundary `boundary_px` (pixel space). Returns `Vector{LabelCandidate}` with
-non-overlapping, deduplicated candidates placed outside the boundary.
+boundary `boundary_px` (pixel space; a flat vector, a vector of components, or
+a `ProjectionBoundary`). Every boundary component is processed independently:
+intersections never span component gaps, normals use the component centroid,
+and `LabelCandidate.boundary_component` is the true projection-boundary
+component index. Returns `Vector{LabelCandidate}` with non-overlapping,
+deduplicated candidates placed outside the boundary.
 """
+_boundary_components(b::ProjectionBoundary) = b.components
+_boundary_components(b::Vector{Vector{Point2d}}) = b
+_boundary_components(b::Vector{Point2d}) = [b]
+
 function place_graticule_labels(curves::Vector{GraticuleCurve}, ticks, kind::Symbol,
-        boundary_px::Vector{Point2d};
+        boundary_px;
         side::Symbol = kind === :meridian ? :bottom : :left,
         ticklabelpad::Real = 5.0, ticksize::Real = 6.0, tickalign::Real = 0.0,
         rotation::Real = 0.0, alignment = Makie.automatic,
         font = :regular, fonts = nothing, fontsize::Real = 16.0,
         format = Makie.automatic,
         allow_duplicates::Bool = false, quality::Symbol = :final,
-        placement::Symbol = :outside)
-    isempty(boundary_px) && return LabelCandidate[]
+        placement::Symbol = :outside, center = nothing)
     isempty(curves) && return LabelCandidate[]
-    if isempty(boundary_px[1]) || length(boundary_px) < 3
-        return LabelCandidate[]
-    end
-    center = Point2d(
-        sum(p -> p[1], boundary_px) / length(boundary_px),
-        sum(p -> p[2], boundary_px) / length(boundary_px),
-    )
+    comps = _boundary_components(boundary_px)
+    isempty(comps) && return LabelCandidate[]
+    all(c -> length(c) < 3, comps) && return LabelCandidate[]
+    flat = reduce(vcat, comps; init = Point2d[])
+    center = center === nothing ?
+        (isempty(flat) ? Point2d(0.0, 0.0) :
+            Point2d(sum(p -> p[1], flat) / length(flat),
+                sum(p -> p[2], flat) / length(flat))) :
+        Point2d(center[1], center[2])
     candidates = Tuple{LabelCandidate, Bool}[]   # (candidate, side_matches)
     for curve in curves
         curve.kind == kind || continue
@@ -245,15 +303,20 @@ function place_graticule_labels(curves::Vector{GraticuleCurve}, ticks, kind::Sym
             cand === nothing || push!(candidates, (cand, true))
             continue
         end
-        ixs = graticule_boundary_intersections(curve, boundary_px)
+        ixs = graticule_boundary_intersections(curve, comps)
         if isempty(ixs) && kind === :parallel
             int_cand = _parallel_interior_candidate(curve, tick_id, side, center,
                 ticklabelpad, rotation, alignment, font, fonts, fontsize, format)
             int_cand === nothing || push!(candidates, (int_cand, true))
             continue
         end
+        # Build EVERY valid intersection for the curve, then select the best
+        # candidate below: the first requested-side match (stable arc order), or
+        # the best fallback when no intersection is on the requested side.
+        curve_cands = Tuple{LabelCandidate, Bool}[]
         for (px, comp, arc) in ixs
-            n = _outward_normal(px, boundary_px)
+            comp_pts = comps[comp]
+            n = _outward_normal(px, comp_pts)
             # Prefer the requested side; accept the intersection only when the
             # outward normal points that way (with a tolerance for curved spines).
             side_matches = side === :bottom ? n[2] < -0.1 :
@@ -267,17 +330,18 @@ function place_graticule_labels(curves::Vector{GraticuleCurve}, ticks, kind::Sym
                 (fonts === nothing ? Makie.defaultfont() : Makie.to_font(fonts, font)) :
                 Makie.to_font(font)
             ctangent = _curve_tangent_at(curve.projected_geometry, px)
-            btangent = Point2d(0, 0)
-            if 1 <= comp < length(boundary_px)
-                b = boundary_px[comp + 1] .- boundary_px[comp]
-                norm(b) > 1.0e-9 && (btangent = b ./ norm(b))
-            end
+            btangent = _boundary_tangent_at(px, comp_pts)
             cand = label_candidate(tick_id, Point2d(pos...), text, nfont,
                 fontsize, rotation, align, comp, arc; side = _label_side(n),
                 tangent = ctangent, boundary_tangent = btangent,
                 preferred_side = side)
-            push!(candidates, (cand, side_matches))
-            break   # one label per curve by default
+            push!(curve_cands, (cand, side_matches))
+        end
+        if !isempty(curve_cands)
+            matching = [c for (c, ok) in curve_cands if ok]
+            pool = isempty(matching) ? [c for (c, _) in curve_cands] : matching
+            _, best = findmin(c -> (c.boundary_component, c.boundary_arclength), pool)
+            push!(candidates, (pool[best], !isempty(matching)))
         end
     end
     # Prefer the requested axis side; fall back to every boundary intersection when

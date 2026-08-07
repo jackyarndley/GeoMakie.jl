@@ -55,6 +55,73 @@ const _LL = "+proj=longlat +datum=WGS84"
         @test all(t -> isfinite(t[1][1]) && isfinite(t[1][2]), ix)
     end
 
+    @testset "multi-component boundary intersections are independent" begin
+        comps = [
+            Point2d[Point2d(0, 0), Point2d(100, 0), Point2d(100, 100),
+                Point2d(0, 100), Point2d(0, 0)],
+            Point2d[Point2d(300, 0), Point2d(400, 0), Point2d(400, 100),
+                Point2d(300, 100), Point2d(300, 0)],
+        ]
+        # Curve entirely inside the gap between the two lobes: no intersections.
+        gap = G.GraticuleCurve(0.0, :meridian,
+            Point2d[Point2d(0, -10), Point2d(0, 110)],
+            Point2d[Point2d(200, -10), Point2d(200, 110)])
+        @test isempty(G.graticule_boundary_intersections(gap, comps))
+        # Curve crossing both lobes reports each true component index.
+        cross = G.GraticuleCurve(0.0, :meridian,
+            Point2d[Point2d(0, -10), Point2d(0, 110)],
+            Point2d[Point2d(50, -10), Point2d(50, 110), Point2d(350, -10), Point2d(350, 110)])
+        ix = G.graticule_boundary_intersections(cross, comps)
+        @test !isempty(ix)
+        @test all(t -> t[2] in (1, 2), ix)
+        @test sort(unique(t[2] for t in ix)) == [1, 2]
+        # A flat boundary is treated as one component (component index 1).
+        ixf = G.graticule_boundary_intersections(cross, comps[1])
+        @test !isempty(ixf)
+        @test all(t -> t[2] == 1, ixf)
+    end
+
+    @testset "curve tangents never span NaN separators" begin
+        pts = Point2d[
+            Point2d(0, 0), Point2d(10, 0), Point2d(20, 0),
+            Point2d(NaN, NaN),
+            Point2d(100, 0), Point2d(110, 0), Point2d(120, 0),
+        ]
+        @test G._curve_tangent_at(pts, Point2d(5, 0)) ≈ Point2d(1, 0)
+        @test G._curve_tangent_at(pts, Point2d(105, 0)) ≈ Point2d(1, 0)
+        # Reverse the second piece's direction: the tangent must stay local.
+        pts2 = Point2d[
+            Point2d(0, 0), Point2d(10, 0), Point2d(20, 0),
+            Point2d(NaN, NaN),
+            Point2d(120, 0), Point2d(110, 0), Point2d(100, 0),
+        ]
+        @test G._curve_tangent_at(pts2, Point2d(110, 0)) ≈ Point2d(-1, 0)
+        @test G._curve_tangent_at(pts2, Point2d(10, 0)) ≈ Point2d(1, 0)
+    end
+
+    @testset "labels keep true boundary component identity" begin
+        comps = [
+            Point2d[Point2d(0, 0), Point2d(100, 0), Point2d(100, 100),
+                Point2d(0, 100), Point2d(0, 0)],
+            Point2d[Point2d(300, 0), Point2d(400, 0), Point2d(400, 100),
+                Point2d(300, 100), Point2d(300, 0)],
+        ]
+        curves = G.GraticuleCurve[
+            G.GraticuleCurve(0.0, :meridian,
+                Point2d[Point2d(0, -10), Point2d(0, 110)],
+                Point2d[Point2d(50, -10), Point2d(50, 110)]),
+            G.GraticuleCurve(30.0, :meridian,
+                Point2d[Point2d(30, -10), Point2d(30, 110)],
+                Point2d[Point2d(350, -10), Point2d(350, 110)]),
+        ]
+        cands = G.place_graticule_labels(curves, [0.0, 30.0], :meridian, comps;
+            side = :bottom, fonts = nothing)
+        @test length(cands) == 2
+        @test sort(collect(c.boundary_component for c in cands)) == [1, 2]
+        @test all(c -> c.position_px[2] < 0, cands)
+        @test all(c -> c.alignment[2] == :top, cands)
+    end
+
     @testset "Boundary-aware labels" begin
         # A simple pixel rectangle: labels must sit outside the boundary and use
         # the outward normal, alignment, and measured text boxes.
