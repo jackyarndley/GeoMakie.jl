@@ -60,6 +60,25 @@ All notable changes to this project are documented in this file.
   are implemented locally instead of delegating to GeometryOps' non-public
   `UnitSpherical` module, whose semantics changed across `GeometryOps 0.1.x`
   and produced non-finite boundary points on older permitted versions.
+- Review hardening of the GeoAxis v2 pipeline: cache values/keys are semantic
+  (`ProjectionBoundary` values, tick-value tuples, full label keys),
+  projection-boundary components are processed independently end-to-end,
+  label selection evaluates every boundary intersection and never spans NaN
+  separators, and `ProjectionRenderContext` centralises clip/frame selection.
+- Seam-aware `poly!`/`lines!` return composite recipes (children of the
+  returned plot) and `contour`/`contourf`/`surface`/`heatmap` original children
+  are frozen/hidden instead of removed or resurrected, so hiding/deleting the
+  returned plot behaves like any Makie composite recipe on both backends.
+- Generic GeoInterface polygon traversal replaces GeometryBasics-only input
+  (`Polygon`/`MultiPolygon`/collections/features/nested vectors all work).
+- GeometryOps spherical-clipping parity is tracked by an experiment script and
+  a `@test_broken` test until the upstream constructor ambiguity is fixed.
+- Repository cleanup: PR-description working files removed, dead helpers
+  dropped, the projection cache is bounded with canonical CRS-string keys, and
+  `GeoProjection` is parameterised over source/destination types.
+- CI: native concurrency, consistent `setup-julia` pinning, an Aqua +
+  JuliaFormatter quality job, failure-only image artifacts, and a dense-raster
+  benchmark (`benchmark/raster.jl`).
 
 ### Changed
 
