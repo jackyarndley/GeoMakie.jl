@@ -1,5 +1,9 @@
 name: CI
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
     branches:
@@ -13,7 +17,6 @@ on:
     - cron: '0 3 * * 1'
 
 permissions:
-  actions: write
   contents: read
 
 jobs:
@@ -35,11 +38,6 @@ jobs:
             allow-failure: true
     continue-on-error: ${{ matrix.allow-failure || false }}
     steps:
-      - name: Cancel ongoing test runs for previous commits
-        uses: styfle/cancel-workflow-action@0.13.1
-        with:
-          access_token: ${{ github.token }}
-
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
@@ -61,13 +59,13 @@ jobs:
           GEOMAKIE_TEST_BACKEND: ${{ matrix.backend }}
         shell: bash
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: failure()
         with:
           name: test_images_${{ matrix.version }}_${{ matrix.backend }}
           path: test_images/
 
   oldest:
-    name: Oldest supported direct dependencies
+    name: Minimum pinned direct dependencies
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -130,7 +128,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Download all workflow run artifacts
         uses: actions/download-artifact@v8
-      - uses: julia-actions/setup-julia@latest
+      - uses: julia-actions/setup-julia@v3
         with:
           version: '1'
       - uses: julia-actions/cache@v3
@@ -154,3 +152,45 @@ jobs:
           DISPLAY: ':0'
           DATADEPS_ALWAYS_ACCEPT: 'true'
           RASTERDATASOURCES_PATH: '~/.julia/artifacts/RasterDataSources'
+
+  quality:
+    name: Aqua and JuliaFormatter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - name: Run Aqua and JuliaFormatter checks
+        run: |
+          julia --project=. -e '
+            using Pkg
+            Pkg.activate(; temp = true)
+            Pkg.develop(path = ".")
+            Pkg.add(["Aqua", "JuliaFormatter"])
+            using Aqua, JuliaFormatter, GeoMakie
+            # unbound_args is disabled: Julia Test.detect_unbound_args flags
+            # type parameters inside Union signatures (e.g. VecTypes{N,T}), a
+            # known false positive. piracies is disabled: GeoMakie intentionally
+            # extends Makie interface for Proj/Geodesy/GeometryBasics types.
+            # persistent_tasks is disabled: the check is environment-sensitive.
+            Aqua.test_all(GeoMakie; ambiguities = true, unbound_args = false,
+                piracies = false, persistent_tasks = false)
+            files = [
+                "src/GeoMakie.jl", "src/contoursplitting_geo.jl", "src/geoaxis.jl",
+                "src/sphere_clip.jl", "src/geodesy.jl", "src/conversions.jl",
+                "src/geoticks.jl", "src/utils.jl", "src/mesh_image.jl", "src/projection.jl",
+                "src/geoaxis",
+                "test/lifecycle.jl", "test/geoaxis_v2.jl", "test/caching.jl",
+                "test/sphere_clip.jl", "test/pr381_fixes.jl", "test/boundaries.jl",
+                "test/label_layout.jl", "test/polar_geoaxis.jl", "test/wrapped_limits.jl",
+                "test/linking.jl", "test/runtests.jl", "test/axis_parity.jl",
+                "benchmark/interactions.jl", "benchmark/raster.jl",
+                "benchmark/spherical_clip_experiment.jl",
+            ]
+            dirty = String[]
+            for f in files
+                JuliaFormatter.format(f; overwrite = false) || push!(dirty, f)
+            end
+            isempty(dirty) || error("JuliaFormatter: files need formatting: " * join(dirty, ", "))'
