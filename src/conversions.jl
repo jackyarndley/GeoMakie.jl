@@ -31,9 +31,6 @@ function Makie.convert_arguments(
     return convert_arguments(P, geo2basic(geom))
 end
 
-function Makie.convert_arguments(
-    P::Type{<:Scatter},
-    geom::GeoJSON.FeatureCollection,
-)
+function Makie.convert_arguments(P::Type{<:Scatter}, geom::GeoJSON.FeatureCollection)
     return convert_arguments(P, geo2basic(geom))
 end
