@@ -14,11 +14,36 @@ function _find_child(plot, ::Type{T}) where {T}
     return i === nothing ? nothing : plot.plots[i]
 end
 
-function _drop_child!(scene, plot, child)
-    delete!(scene, child)
-    i = findfirst(==(child), plot.plots)
-    i === nothing || deleteat!(plot.plots, i)
-    return
+# Hide a recipe child whose `:visible` is a computed output (setting
+# `child.visible = false` would try to add an input that already exists).
+function _hide_child!(p)
+    c = p[:visible]
+    c[]           # resolve first so the value ref is assigned
+    c[] = false
+    return p
+end
+
+# Freeze and hide a recipe's own (unsplit) child. The compute graph is detached
+# from the parent so its geometry/`:visible` can never be re-derived (which
+# would resurrect the unsplit drawing after a hide/show cycle); the split child
+# handles all subsequent updates. The returned plot's own visibility still
+# gates the child through the backend's parent-tree checks.
+function _freeze_hide_child!(child)
+    Makie.ComputePipeline.unsafe_disconnect_from_parents!(child.attributes)
+    _hide_child!(child)
+    return child
+end
+
+# Link a child plot's visibility to its parent so hiding/deleting the returned
+# plot affects its rendered children in every backend (Cairo already gates child
+# drawing on the parent tree; GLMakie renders children independently).
+function _link_child_visibility(parent::Makie.Plot, child::Makie.Plot)
+    c = child[:visible]
+    c[]           # resolve first so the value ref is assigned
+    on(parent, parent.visible; update = true) do v
+        c[] = v
+    end
+    return child
 end
 
 # Split each band polygon at the clip's discontinuity (full d3 pipeline: rotate → clip →
@@ -60,13 +85,15 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contourf)
             rctx.resample_scale; rotated = rctx.rotated)
     end
 
-    # the split child must draw in the SAME frame the split polys were emitted in: centred
+    # The split child must draw in the SAME frame the split polys were emitted in: centred
     # transform for the antimeridian (rotated frame), full transform otherwise, decided inside one
     # lift (`_child_transformfunc`) so the geometry frame and transform switch atomically with `dest`.
+    # The recipe's own unsplit child is hidden (not removed from `plot.plots`), and the split child
+    # is a child of the returned recipe so hiding/deleting the handle affects its rendering.
     child = _find_child(plot, Makie.Poly)
     if child !== nothing
-        _drop_child!(axis.scene, plot, child)
-        Makie.poly!(
+        _freeze_hide_child!(child)
+        splitchild = Makie.poly!(
             plot, plot.split_polys;
             transformation = Makie.Transformation(_child_transformfunc(axis, source)),
             colormap = plot.computed_colormap,
@@ -81,6 +108,7 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contourf)
             inspectable = plot.inspectable,
             transparency = plot.transparency,
         )
+        _link_child_visibility(plot, splitchild)
     end
 
     if reset_limits
@@ -135,53 +163,169 @@ function _split_geom(geom, dest, source)
     return (polys, group)
 end
 
-# Shared implementation for the seam-aware `poly!` intercepts: clip/split the geometry on the
-# sphere and draw it in the matching frame, so land/coastline fills don't smear across the tear
-# (and stay correct at lon_0 = 180 via Option B). Per-polygon colour vectors are replicated
-# onto pieces. The intercept methods below cover single `Polygon`, `MultiPolygon` and vectors
-# of either; `_split_geom` normalises them via `_collect_polys`.
-function _poly_split_plot!(axis::GeoAxis, plot)
-    source = pop!(plot.kw, :source, axis.source)
-    reset_limits = to_value(pop!(plot.kw, :reset_limits, true))
-    # Connect the original plot so its cycle colour / palette resolves from the scene (e.g.
-    # `poly!(ga, geom)` with no explicit colour), but hide its unsplit drawing; the split
-    # geometry is rendered separately below.
-    Makie.plot!(axis.scene, plot); plot.visible = false
-    split = lift(_split_geom, plot[1], axis.dest, source)
+# ============================================================================
+# Seam-aware `poly!`/`lines!` composite recipes.
+#
+# `poly!(ga, geom)` and `lines!(ga, pts)` return a small composite recipe whose
+# only child is the seam-split, frame-correct rendering. Hiding/deleting the
+# returned plot behaves like any other Makie composite recipe (no hidden
+# originals, no scene siblings, no `plot.plots` mutation), and attributes are
+# forwarded through the compute graph to the child.
+# ============================================================================
+
+# Marker types: the recipe argument carries the user geometry. The CRS values
+# live in the recipe's `source`/`dest` attributes (set by the axis method) so
+# the argument itself contains no Observables — ComputePipeline deep-copies
+# computed arguments, and an Observable inside the marker would drag the whole
+# axis graph into the copy.
+struct _GeoSeamPolyArg{A}
+    args::A
+end
+
+struct _GeoSeamLinesArg{A}
+    args::A
+end
+
+@recipe GeoSeamPoly (geom,) begin
+    "Color of the polygon fill(s)."
+    color = automatic
+    "Color of the polygon outlines."
+    strokecolor = :black
+    "Width of the polygon outlines."
+    strokewidth = 1.0
+    "Lighting algorithm used by 3D backends."
+    shading = Makie.NoShading
+    "Geographic source CRS (PROJ string or GeoFormatTypes object)."
+    source = "+proj=longlat +datum=WGS84"
+    "Destination CRS / projection (PROJ string or GeoFormatTypes object)."
+    dest = "+proj=longlat +datum=WGS84"
+    "Whether to reset the axis limits when the plot is added."
+    reset_limits = true
+    mixin_generic_plot_attributes()...
+    mixin_colormap_attributes()...
+end
+
+@recipe GeoSeamLines (pts,) begin
+    "Color of the line(s)."
+    color = automatic
+    "Width of the line(s)."
+    linewidth = 1.0
+    "Style of the line(s)."
+    linestyle = nothing
+    "Geographic source CRS (PROJ string or GeoFormatTypes object)."
+    source = "+proj=longlat +datum=WGS84"
+    "Destination CRS / projection (PROJ string or GeoFormatTypes object)."
+    dest = "+proj=longlat +datum=WGS84"
+    "Whether to reset the axis limits when the plot is added."
+    reset_limits = true
+    mixin_generic_plot_attributes()...
+    mixin_colormap_attributes()...
+end
+
+Makie.convert_arguments(::Type{<:GeoSeamPoly}, m::_GeoSeamPolyArg) = (m,)
+Makie.convert_arguments(::Type{<:GeoSeamLines}, m::_GeoSeamLinesArg) = (m,)
+
+_is_poly_geometry(::GeometryBasics.Polygon) = true
+_is_poly_geometry(::GeometryBasics.MultiPolygon) = true
+_is_poly_geometry(::AbstractVector{<:GeometryBasics.Polygon}) = true
+_is_poly_geometry(::AbstractVector{<:GeometryBasics.MultiPolygon}) = true
+_is_poly_geometry(::AbstractVector{<:AbstractVector{<:Point}}) = true
+_is_poly_geometry(_...) = false
+
+_is_line_geometry(::AbstractVector{<:Point2}) = true
+_is_line_geometry(::AbstractVector{<:Number}, ::AbstractVector{<:Number}) = true
+_is_line_geometry(_...) = false
+
+# The transform the split child must draw with (the same Option-B rule as
+# `_child_transformfunc`, from arbitrary dest/source values).
+function _display_transform_obs(dest, source)
+    return lift(dest, source) do d, s
+        ProjectionRenderContext(d, s).display_transform
+    end
+end
+
+_geo_poly_geometry(m::_GeoSeamPolyArg) = length(m.args) == 1 ? m.args[1] : m.args
+
+function _geo_line_points(m::_GeoSeamLinesArg)
+    length(m.args) == 1 && return m.args[1]
+    xs, ys = m.args
+    return Point2d[Point2d(x, y) for (x, y) in zip(xs, ys)]
+end
+
+function Makie.plot!(plot::GeoSeamPoly)
+    m = plot[1][]
+    split = lift(plot[1], plot.dest, plot.source) do m2, d, s
+        _split_geom(_geo_poly_geometry(m2), d, s)
+    end
     splitpolys = lift(first, split)
-    splitcolor = lift(plot.color, plot[1], split) do col, geom, s
+    splitcolor = lift(plot.color, plot[1], split) do col, m2, s
         # `s[2]` maps every flattened/clipped output piece back to its input
         # geometry element. Per-element colour vectors (one colour per user
-        # polygon/MultiPolygon) are replicated onto the pieces; the input
-        # count is the user-geometry length, not the flattened piece count,
-        # because `_collect_polys` expands MultiPolygon components.
+        # polygon/MultiPolygon) are replicated onto the pieces; the input count
+        # is the user-geometry length, not the flattened piece count.
+        geom = _geo_poly_geometry(m2)
         ninput = geom isa AbstractVector ? length(geom) : 1
         (col isa AbstractVector && length(col) == ninput) ? col[s[2]] : col
     end
-    # draw the split geometry straight into the axis scene with the matching (centred/full)
-    # transform; the original `plot` stays an unrealised handle (returned to the caller).
-    Makie.poly!(
-        axis.scene, splitpolys;
-        color = splitcolor,
+    color_kw = to_value(plot.color) === Makie.automatic ?
+        NamedTuple() : (color = splitcolor,)
+    splitchild = Makie.poly!(plot, splitpolys;
+        color_kw...,
         colormap = plot.colormap,
         colorrange = plot.colorrange,
         strokecolor = plot.strokecolor,
         strokewidth = plot.strokewidth,
         transparency = plot.transparency,
-        transformation = Makie.Transformation(_child_transformfunc(axis, source)),
+        transformation = Makie.Transformation(_display_transform_obs(plot.dest, plot.source)),
     )
+    _link_child_visibility(plot, splitchild)
+    return plot
+end
+
+function Makie.plot!(plot::GeoSeamLines)
+    m = plot[1][]
+    splitpts = lift(plot[1], plot.dest, plot.source) do m2, d, s
+        rctx = ProjectionRenderContext(d, s)
+        split_resample_line(_geo_line_points(m2), rctx.geographic_transform;
+            project = rctx.projector, rotated = rctx.rotated)
+    end
+    # Per-vertex colours cannot survive adaptive resampling (the vertex count
+    # changes); fall back to a single colour. Single colours pass through.
+    splitcolor = lift(plot.color) do c
+        c isa AbstractVector ? :black : c
+    end
+    color_kw = to_value(plot.color) === Makie.automatic ?
+        NamedTuple() : (color = splitcolor,)
+    splitchild = Makie.lines!(plot, splitpts;
+        color_kw...,
+        colormap = plot.colormap,
+        colorrange = plot.colorrange,
+        linewidth = plot.linewidth,
+        linestyle = plot.linestyle,
+        transparency = plot.transparency,
+        transformation = Makie.Transformation(_display_transform_obs(plot.dest, plot.source)),
+    )
+    _link_child_visibility(plot, splitchild)
+    return plot
+end
+
+function Makie.plot!(axis::GeoAxis, plot::GeoSeamPoly)
+    get(plot.kw, :source, nothing) === nothing && (plot.kw[:source] = axis.source)
+    get(plot.kw, :dest, nothing) === nothing && (plot.kw[:dest] = axis.dest)
+    reset_limits = to_value(pop!(plot.kw, :reset_limits, true))
+    Makie.plot!(axis.scene, plot)
     reset_limits && Makie.is_open_or_any_parent(axis.scene) && Makie.reset_limits!(axis)
     return plot
 end
 
-Makie.plot!(axis::GeoAxis, plot::Makie.Poly{<:Tuple{<:AbstractVector{<:GeometryBasics.Polygon}}}) =
-    _poly_split_plot!(axis, plot)
-Makie.plot!(axis::GeoAxis, plot::Makie.Poly{<:Tuple{<:GeometryBasics.Polygon}}) =
-    _poly_split_plot!(axis, plot)
-Makie.plot!(axis::GeoAxis, plot::Makie.Poly{<:Tuple{<:GeometryBasics.MultiPolygon}}) =
-    _poly_split_plot!(axis, plot)
-Makie.plot!(axis::GeoAxis, plot::Makie.Poly{<:Tuple{<:AbstractVector{<:GeometryBasics.MultiPolygon}}}) =
-    _poly_split_plot!(axis, plot)
+function Makie.plot!(axis::GeoAxis, plot::GeoSeamLines)
+    get(plot.kw, :source, nothing) === nothing && (plot.kw[:source] = axis.source)
+    get(plot.kw, :dest, nothing) === nothing && (plot.kw[:dest] = axis.dest)
+    reset_limits = to_value(pop!(plot.kw, :reset_limits, true))
+    Makie.plot!(axis.scene, plot)
+    reset_limits && Makie.is_open_or_any_parent(axis.scene) && Makie.reset_limits!(axis)
+    return plot
+end
 
 # Seam-aware line contours: run the `contour` recipe, then swap its `Lines` child for the
 # clipped/resampled version (drawn in the matching centred/full frame).
@@ -199,8 +343,8 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contour)
                 project = rctx.projector, rotated = rctx.rotated)
         end
         col = lift(c -> c isa AbstractVector ? :black : c, child.color)   # per-vertex colour can't survive resampling
-        _drop_child!(axis.scene, plot, child)
-        Makie.lines!(
+        _freeze_hide_child!(child)
+        splitchild = Makie.lines!(
             plot, splitpts;
             color = col,
             linewidth = child.linewidth,
@@ -208,39 +352,8 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contour)
             transparency = plot.transparency,
             transformation = Makie.Transformation(_child_transformfunc(axis, source)),
         )
+        _link_child_visibility(plot, splitchild)
     end
-    reset_limits && Makie.is_open_or_any_parent(axis.scene) && Makie.reset_limits!(axis)
-    return plot
-end
-
-# Seam-aware polylines: `lines!(ga, points_or_geometry)` clips/resamples the line on the sphere
-# and draws it in the matching frame, so coastlines/contour lines don't shoot across the tear
-# (and stay correct at lon_0 = 180 via Option B).
-function Makie.plot!(axis::GeoAxis, plot::Makie.Lines{<:Tuple{<:AbstractVector{<:Point2}}})
-    source = pop!(plot.kw, :source, axis.source)
-    reset_limits = to_value(pop!(plot.kw, :reset_limits, true))
-    # connect so cycle colour/palette resolves from the scene, but hide the unsplit drawing
-    Makie.plot!(axis.scene, plot); plot.visible = false
-    splitpts = lift(plot[1], axis.dest, source) do pts, dest, src
-        rctx = ProjectionRenderContext(dest, src)
-        split_resample_line(pts, rctx.geographic_transform;
-            project = rctx.projector, rotated = rctx.rotated)
-    end
-    Makie.lines!(
-        axis.scene, splitpts;
-        # Per-vertex colours cannot survive adaptive resampling (the vertex count changes);
-        # fall back to a single colour, mirroring the `Contour` path. Single colours pass
-        # through unchanged.
-        color = lift(plot.color) do c
-            c isa AbstractVector ? :black : c
-        end,
-        colormap = plot.colormap,
-        colorrange = plot.colorrange,
-        linewidth = plot.linewidth,
-        linestyle = plot.linestyle,
-        transparency = plot.transparency,
-        transformation = Makie.Transformation(_child_transformfunc(axis, source)),
-    )
     reset_limits && Makie.is_open_or_any_parent(axis.scene) && Makie.reset_limits!(axis)
     return plot
 end
@@ -295,20 +408,30 @@ function _geo_grid_plot!(axis, plot, vals_node)
     reset_limits = to_value(pop!(plot.kw, :reset_limits, true))
     # Realize the original surface/heatmap but hide it: the seam-clipped mesh below does the
     # drawing, while the original keeps a computed colormapping so `Colorbar(fig, sf)` still works
-    # (it extracts the colormap from the returned plot). Same connect-and-hide as poly!/lines!.
-    Makie.plot!(axis.scene, plot); plot.visible = false
+    # (it extracts the colormap from the returned plot). The mesh is added as a CHILD of the
+    # returned plot (composite-style), so hiding/deleting the handle affects its rendering.
+    Makie.plot!(axis.scene, plot)
+    # Surface's own recipe draws a Mesh child; hide it so only the seam-clipped mesh renders.
+    # Heatmap has no children, and adding a child makes it composite in every backend (its own
+    # atomic drawing is then skipped), so nothing extra needs hiding there.
+    for own in plot.plots
+        _freeze_hide_child!(own)
+    end
     mc = lift(plot[1], plot[2], vals_node, axis.dest, source) do xs, ys, vals, dest, src
         _geo_grid_mesh(dest, src, xs, ys, vals)
     end
-    Makie.mesh!(
-        axis.scene, lift(first, mc);
+    meshchild = Makie.mesh!(
+        plot, lift(first, mc);
         color = lift(last, mc),
         colormap = plot.colormap,
         colorrange = plot.colorrange,
         nan_color = plot.nan_color,
         shading = Makie.NoShading,
         transparency = plot.transparency,
+        # Mesh vertices are already projected; do not re-apply the axis transform.
+        transformation = Makie.Transformation(),
     )
+    _link_child_visibility(plot, meshchild)
     if reset_limits
         Makie.needs_tight_limits(plot) && (axis.xautolimitmargin = (0.01, 0.01); axis.yautolimitmargin = (0.01, 0.01))
         Makie.is_open_or_any_parent(axis.scene) && Makie.reset_limits!(axis)

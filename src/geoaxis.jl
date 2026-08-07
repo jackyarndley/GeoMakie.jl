@@ -1140,7 +1140,18 @@ end
 function _create_plot!(F, attributes::Dict, ax::GeoAxis, args...)
     source = pop!(attributes, :source, nothing)
     dest = pop!(attributes, :dest, nothing)
-    plot = Plot{Makie.default_plot_func(F, args)}(args, attributes)
+    PT = Makie.default_plot_func(F, args)
+    if F === Makie.poly && _is_poly_geometry(args...)
+        attributes[:source] = source === nothing ? ax.source : source
+        attributes[:dest] = dest === nothing ? ax.dest : dest
+        plot = GeoSeamPoly((_GeoSeamPolyArg(args),), attributes)
+    elseif F === Makie.lines && _is_line_geometry(args...)
+        attributes[:source] = source === nothing ? ax.source : source
+        attributes[:dest] = dest === nothing ? ax.dest : dest
+        plot = GeoSeamLines((_GeoSeamLinesArg(args),), attributes)
+    else
+        plot = Plot{PT}(args, attributes)
+    end
     isnothing(source) || (plot.kw[:source] = source)
     isnothing(dest) || (plot.kw[:dest] = dest)
     Makie.plot!(ax, plot)
