@@ -88,6 +88,40 @@ end
     end
 end
 
+@testset "GeometryOps spherical clipping parity" begin
+    # Review experiment: GO 0.1.42 ships a Spherical Foster–Hormann clipping
+    # path, but its constructor is ambiguous (generic vs Spherical-specialized
+    # `FosterHormannClipping`), so the API cannot even be invoked. Once an
+    # upstream release fixes that, this test should start passing: the narrow
+    # contract is convex-polygon ∩ convex-polygon parity with GeoMakie's d3
+    # `_clip_against_polygon` (no holes, no d3 rejoining semantics needed).
+    clip = [(0.0, 0.0), (30.0, 0.0), (30.0, 30.0), (0.0, 30.0)]
+    subj = [(10.0, 10.0), (40.0, 10.0), (40.0, 40.0), (10.0, 40.0)]
+    pa = G.GI.Polygon([G.GI.LinearRing([G.GI.Point(p) for p in clip])])
+    pb = G.GI.Polygon([G.GI.LinearRing([G.GI.Point(p) for p in subj])])
+    go_out = try
+        alg = G.GO.FosterHormannClipping(G.GO.Spherical())
+        G.GO.intersection(alg, pa, pb; target = G.GI.PolygonTrait())
+    catch
+        nothing
+    end
+    if go_out === nothing
+        @test_broken false   # GO spherical clipping API unavailable (ambiguity)
+    else
+        # Compare the intersection area with GeoMakie's spherical clip result.
+        gp = G.geoprojection("+proj=longlat +datum=WGS84", "+proj=longlat +datum=WGS84")
+        clipdeg = [G.Point2d(p[1], p[2]) for p in clip]
+        pc = G.PolygonClip([clipdeg])
+        ours = G._split_polygon(pc, G._poly_rings(pb), G._projector(gp.forward), 1.0)
+        @test !isempty(go_out)
+        @test !isempty(ours)
+        # Both intersections should cover the same region (area within 1%).
+        go_area = sum(G.GO.area(G.GO.Spherical(), p) for p in go_out)
+        our_area = sum(G.GO.area(G.GO.Spherical(), o) for o in ours)
+        @test go_area ≈ our_area rtol = 0.01
+    end
+end
+
 # Bucket C: azimuthal/perspective limbs (and the hemisphere-clipped globulars) must draw a clean
 # circular spine that encloses the clipped land. Regression guards: (1) `aeqd`'s spine used to drop
 # the arc straddling the antimeridian near the antipode, leaving a ~full-diameter chord that cut the
