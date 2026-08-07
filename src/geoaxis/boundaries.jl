@@ -44,7 +44,7 @@ struct ProjectionBoundary
     components::Vector{Vector{Point2d}}
 end
 
-ProjectionBoundary(pts::Vector{Point2d}) = ProjectionBoundary(Vector{Vector{Point2d}}[pts])
+ProjectionBoundary(pts::Vector{Point2d}) = ProjectionBoundary([pts])
 ProjectionBoundary() = ProjectionBoundary(Vector{Vector{Point2d}}())
 
 Base.length(b::ProjectionBoundary) = length(b.components)
@@ -115,6 +115,12 @@ function boundary_points(gp::GeoProjection)
     return reduce(vcat, comps; init = Point2d[])
 end
 
+# Flat point view of a `ProjectionBoundary` (finite projected points, components
+# concatenated without separators). Used for viewport/intersection geometry.
+function boundary_points(b::ProjectionBoundary)
+    return reduce(vcat, b.components; init = Point2d[])
+end
+
 """
     boundary_segments(gp::GeoProjection) -> Vector{Point2d}
 
@@ -123,6 +129,19 @@ NaN-separated boundary paths (one per component) ready for `lines!`.
 function boundary_segments(gp::GeoProjection)
     out = Point2d[]
     for comp in boundary_components(gp)
+        isempty(comp) && continue
+        append!(out, comp)
+        length(comp) > 1 && push!(out, comp[1])   # close the ring
+        push!(out, Point2d(NaN, NaN))
+    end
+    return out
+end
+
+# NaN-separated `lines!`-ready view of a `ProjectionBoundary` (one closed path
+# per component). Used for the spine; components are never joined.
+function boundary_segments(b::ProjectionBoundary)
+    out = Point2d[]
+    for comp in b.components
         isempty(comp) && continue
         append!(out, comp)
         length(comp) > 1 && push!(out, comp[1])   # close the ring

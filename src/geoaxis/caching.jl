@@ -38,9 +38,9 @@ Per-`GeoAxis` bounded caches for projection boundaries, adaptive graticules
 and placed label candidates.
 """
 struct AxisCache
-    boundary::BoundedDict{Tuple{Any, Any}, Vector{Point2d}}
+    boundary::BoundedDict{Tuple{Any, Any}, ProjectionBoundary}
     graticules::BoundedDict{
-        Tuple{Any, Any, NTuple{4, Float64}, Int, Int, Float64},
+        Tuple{Any, Any, NTuple{4, Float64}, Tuple{Vararg{Float64}}, Tuple{Vararg{Float64}}, Float64},
         Vector{GraticuleCurve}}
     labels::BoundedDict{Tuple, Vector{LabelCandidate}}
     maxsize::Int
@@ -48,9 +48,9 @@ end
 
 function AxisCache(; maxsize::Int = 64)
     return AxisCache(
-        BoundedDict{Tuple{Any, Any}, Vector{Point2d}}(maxsize),
+        BoundedDict{Tuple{Any, Any}, ProjectionBoundary}(maxsize),
         BoundedDict{
-            Tuple{Any, Any, NTuple{4, Float64}, Int, Int, Float64},
+            Tuple{Any, Any, NTuple{4, Float64}, Tuple{Vararg{Float64}}, Tuple{Vararg{Float64}}, Float64},
             Vector{GraticuleCurve}}(maxsize),
         BoundedDict{Tuple, Vector{LabelCandidate}}(maxsize),
         maxsize,

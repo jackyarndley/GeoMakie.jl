@@ -1,5 +1,6 @@
 using GeoMakie, CairoMakie, GeometryBasics, Test
 const G = GeoMakie
+const _LL = "+proj=longlat +datum=WGS84"
 
 @testset "GeoAxis caching and interaction quality" begin
     @testset "bounded eviction" begin
@@ -51,5 +52,36 @@ const G = GeoMakie
         @test isempty(ga.cache.boundary.data)
         @test isempty(ga.cache.graticules.data)
         @test isempty(ga.cache.labels.data)
+    end
+
+    @testset "boundary cache stores the semantic ProjectionBoundary" begin
+        fig = Figure()
+        ga = GeoAxis(fig[1, 1]; dest = "+proj=igh")
+        Makie.update_state_before_display!(fig)
+        obj = first(values(ga.cache.boundary.data))
+        @test obj isa G.ProjectionBoundary
+        pts = G.boundary_points(obj)
+        segs = G.boundary_segments(obj)
+        @test !isempty(pts)
+        @test all(p -> isfinite(p[1]) && isfinite(p[2]), pts)
+        @test any(isnan, segs)
+        # Points and segments are views of the same stored object: the cache
+        # never holds one flattened representation that could poison the other.
+        @test length(segs) >= length(pts)
+    end
+
+    @testset "graticule cache keys use tick values, not counts" begin
+        cache = G.BoundedDict{
+            Tuple{Any, Any, NTuple{4, Float64}, Tuple{Vararg{Float64}}, Tuple{Vararg{Float64}}, Float64},
+            Vector{Int}}(4)
+        extent = (-180.0, 180.0, -90.0, 90.0)
+        key1 = ("+proj=eqearth", _LL, extent, (0.0, 30.0), (0.0, 60.0), 1.0)
+        key2 = ("+proj=eqearth", _LL, extent, (10.0, 40.0), (15.0, 45.0), 1.0)
+        @test key1 != key2
+        G.getcache!(cache, key1, () -> [1])
+        G.getcache!(cache, key2, () -> [2])
+        @test length(cache.data) == 2
+        @test cache.data[key1] == [1]
+        @test cache.data[key2] == [2]
     end
 end
