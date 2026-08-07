@@ -290,7 +290,7 @@ function _geo_grid_mesh(dest, source, xs, ys, vals)
         points[k] = Makie.to_ndim(Point3d, Makie.apply_transform(tf, Point3d(lo, la, 0.0)), 0.0)
         cols[k] = vals[ci[1], ci[2]]
     end
-    rect = GeometryBasics.Tesselation(Rect2f(0, 0, 1, 1), (nx, ny))
+    rect = GeometryBasics.Tessellation(Rect2f(0, 0, 1, 1), (nx, ny))
     faces = GeometryBasics.decompose(Makie.GLTriangleFace, rect)
     # clip faces at the discontinuity (subdivides toward the seam); interpolate colour onto the
     # inserted midpoint vertices so the mesh fills to the boundary instead of leaving a sliver.

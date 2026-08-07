@@ -169,7 +169,7 @@ function Makie.plot!(plot::MeshImage)
             # TODO: resize the old structarray instead!
             points_buffer[] = Vector{Point3d}(undef, first(npoints) * last(npoints))
             # This constructs an efficient triangulation of a rectangle (all images are rectangles).
-            rect = GeometryBasics.Tesselation(Rect2f(0, 0, 1, 1), (first(npoints), last(npoints)))
+            rect = GeometryBasics.Tessellation(Rect2f(0, 0, 1, 1), (first(npoints), last(npoints)))
             faces_buffer[] = GeometryBasics.decompose(Makie.GLTriangleFace, rect)
             uv_buffer[] = map(x -> Vec2f(x[1], 1f0 - x[2]), GeometryBasics.decompose_uv(rect))
             old_npoints[] = (first(npoints), last(npoints))
