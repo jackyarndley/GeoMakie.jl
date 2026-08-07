@@ -219,12 +219,14 @@ end
 # the argument itself contains no Observables — ComputePipeline deep-copies
 # computed arguments, and an Observable inside the marker would drag the whole
 # axis graph into the copy.
-struct _GeoSeamPolyArg{A}
+struct _GeoSeamPolyArg{A,R}
     args::A
+    rasterize::R
 end
 
-struct _GeoSeamLinesArg{A}
+struct _GeoSeamLinesArg{A,R}
     args::A
+    rasterize::R
 end
 
 @recipe GeoSeamPoly (geom,) begin
@@ -319,6 +321,7 @@ function Makie.plot!(plot::GeoSeamPoly)
         strokecolor = plot.strokecolor,
         strokewidth = plot.strokewidth,
         transparency = plot.transparency,
+        rasterize = m.rasterize,
         transformation = Makie.Transformation(
             _display_transform_obs(plot.dest, plot.source),
         ),
@@ -354,6 +357,7 @@ function Makie.plot!(plot::GeoSeamLines)
         linewidth = plot.linewidth,
         linestyle = plot.linestyle,
         transparency = plot.transparency,
+        rasterize = m.rasterize,
         transformation = Makie.Transformation(
             _display_transform_obs(plot.dest, plot.source),
         ),

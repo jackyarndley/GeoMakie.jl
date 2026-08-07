@@ -98,4 +98,18 @@ const _IS_GL = lowercase(get(ENV, "GEOMAKIE_TEST_BACKEND", "cairo")) == "gl"
             @test !any(x -> x === p, ga.scene.plots)
         end
     end
+
+    @testset "rasterize is forwarded to the split child" begin
+        # `poly!(...; rasterize = 5)` must not turn the composite recipe into a
+        # Cairo-atomic plot (which would warn and render nothing); the child
+        # gets the rasterize attribute instead.
+        fig = Figure()
+        ga = GeoAxis(fig[1, 1]; dest = "+proj=eqearth")
+        mps = G.to_multipoly.(land[1:5])
+        p = poly!(ga, mps; color = (:gray70, 0.55), rasterize = 5)
+        Makie.update_state_before_display!(fig)
+        @test length(p.plots) == 1
+        @test to_value(p.plots[1].rasterize) == 5
+        @test_nowarn (save(tempname() * ".png", fig); true)
+    end
 end

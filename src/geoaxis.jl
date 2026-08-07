@@ -1456,11 +1456,13 @@ function _create_plot!(F, attributes::Dict, ax::GeoAxis, args...)
     if F === Makie.poly && _is_poly_geometry(args...)
         attributes[:source] = source === nothing ? ax.source : source
         attributes[:dest] = dest === nothing ? ax.dest : dest
-        plot = GeoSeamPoly((_GeoSeamPolyArg(args),), attributes)
+        rasterize = pop!(attributes, :rasterize, false)
+        plot = GeoSeamPoly((_GeoSeamPolyArg(args, rasterize),), attributes)
     elseif F === Makie.lines && _is_line_geometry(args...)
         attributes[:source] = source === nothing ? ax.source : source
         attributes[:dest] = dest === nothing ? ax.dest : dest
-        plot = GeoSeamLines((_GeoSeamLinesArg(args),), attributes)
+        rasterize = pop!(attributes, :rasterize, false)
+        plot = GeoSeamLines((_GeoSeamLinesArg(args, rasterize),), attributes)
     else
         plot = Plot{PT}(args, attributes)
     end
