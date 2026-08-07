@@ -82,7 +82,10 @@ const _IS_GL = lowercase(get(ENV, "GEOMAKIE_TEST_BACKEND", "cairo")) == "gl"
                 @test all(==(false), child_visible(p))
                 p.visible = true
                 Makie.update_state_before_display!(fig)
-                @test all(==(true), child_visible(p))
+                # The frozen original child stays hidden; the rendered (last)
+                # child follows the returned plot.
+                @test p.plots[end].visible[]
+                @test any(==(true), child_visible(p))
             else
                 @test shown != base
                 p.visible = false

@@ -115,8 +115,10 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contourf)
     # The recipe's own unsplit child is hidden (not removed from `plot.plots`), and the split child
     # is a child of the returned recipe so hiding/deleting the handle affects its rendering.
     child = _find_child(plot, Makie.Poly)
+    frozen = Makie.AbstractPlot[]
     if child !== nothing
         _freeze_hide_child!(child)
+        push!(frozen, child)
         splitchild = Makie.poly!(
             plot,
             plot.split_polys;
@@ -133,7 +135,13 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contourf)
             inspectable = plot.inspectable,
             transparency = plot.transparency,
         )
-        _link_child_visibility(plot, splitchild)
+    end
+    # GLMakie renders every child independently: link every non-frozen child
+    # (the split Poly and recipe children such as contour labels) to the
+    # returned plot's visibility for backend parity.
+    for c in plot.plots
+        c in frozen && continue
+        _link_child_visibility(plot, c)
     end
 
     if reset_limits
@@ -382,6 +390,7 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contour)
     Makie.plot!(axis.scene, plot)        # contour recipe → Text (labels) + Lines
 
     child = _find_child(plot, Makie.Lines)
+    frozen = Makie.AbstractPlot[]
     if child !== nothing
         splitpts = lift(child[1], axis.dest, source) do pts, dest, src
             rctx = ProjectionRenderContext(dest, src)
@@ -403,7 +412,10 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contour)
             transparency = plot.transparency,
             transformation = Makie.Transformation(_child_transformfunc(axis, source)),
         )
-        _link_child_visibility(plot, splitchild)
+    end
+    for c in plot.plots
+        c in frozen && continue
+        _link_child_visibility(plot, c)
     end
     reset_limits && Makie.is_open_or_any_parent(axis.scene) && Makie.reset_limits!(axis)
     return plot
@@ -468,8 +480,10 @@ function _geo_grid_plot!(axis, plot, vals_node)
     # Surface's own recipe draws a Mesh child; hide it so only the seam-clipped mesh renders.
     # Heatmap has no children, and adding a child makes it composite in every backend (its own
     # atomic drawing is then skipped), so nothing extra needs hiding there.
+    frozen = Makie.AbstractPlot[]
     for own in plot.plots
         _freeze_hide_child!(own)
+        push!(frozen, own)
     end
     mc = lift(plot[1], plot[2], vals_node, axis.dest, source) do xs, ys, vals, dest, src
         _geo_grid_mesh(dest, src, xs, ys, vals)
@@ -486,7 +500,10 @@ function _geo_grid_plot!(axis, plot, vals_node)
         # Mesh vertices are already projected; do not re-apply the axis transform.
         transformation = Makie.Transformation(),
     )
-    _link_child_visibility(plot, meshchild)
+    for c in plot.plots
+        c in frozen && continue
+        _link_child_visibility(plot, c)
+    end
     if reset_limits
         Makie.needs_tight_limits(plot) &&
             (axis.xautolimitmargin = (0.01, 0.01); axis.yautolimitmargin = (0.01, 0.01))
