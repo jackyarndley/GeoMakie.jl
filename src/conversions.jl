@@ -23,6 +23,6 @@ function Makie.convert_arguments(P::Type{<:Poly}, geom::GeoJSON.FeatureCollectio
     return convert_arguments(P, to_multipoly.(geo2basic(geom)))
 end
 
-function Makie.convert_arguments(P::Type{<:AbstractPlot}, geom::GeoJSON.FeatureCollection)
+function Makie.convert_arguments(P::Type{<:Union{Poly, Mesh, Lines}}, geom::GeoJSON.FeatureCollection)
     return convert_arguments(P, geo2basic(geom))
 end

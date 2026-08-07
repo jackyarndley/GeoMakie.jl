@@ -28,7 +28,8 @@ removed if necessary.
 
 =#
 
-function Makie.apply_transform(t::Proj.Transformation, pt::V) where V <: VecTypes{N,T} where {N, T <: Number}
+function Makie.apply_transform(t::Proj.Transformation, pt::VecTypes{N, T}) where {N, T <: Number}
+    V = typeof(pt)
     if all(isnan.(pt))
         return V(NaN)
     end

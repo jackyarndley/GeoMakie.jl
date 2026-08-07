@@ -32,11 +32,12 @@ end
 # but useful nonetheless.
 Makie.inverse_transform(f::Geodesy.ECEFfromLLA) = Base.inv(f)
 # and its application:
-function Makie.apply_transform(f::Geodesy.LLAfromECEF, pt::V) where V <: VecTypes{3, T} where {T}
+function Makie.apply_transform(f::Geodesy.LLAfromECEF, pt::VecTypes{3, T}) where {T}
+    V = typeof(pt)
     return V((f(ECEF(pt[1], pt[2], pt[3])))...)
 end
 
-function Makie.apply_transform(f::Geodesy.LLAfromECEF, pt::V) where V <: VecTypes{N, T} where {N, T}
+function Makie.apply_transform(f::Geodesy.LLAfromECEF, pt::VecTypes{N, T}) where {N, T}
     return Makie.apply_transform(f, to_ndim(Point3d, pt, 0))
 end
 

@@ -12,6 +12,10 @@ using Makie
 import Makie: _create_plot!, mixin_generic_plot_attributes, mixin_colormap_attributes
 
 import Makie: convert_arguments, convert_attribute, to_value, automatic
+# Explicit bindings for names reexported via `@reexport using Makie` (Reexport
+# adds them to the export list without creating module bindings, which Aqua's
+# undefined-exports check flags).
+import Makie: Transformation, bottom, left, right, top
 using Makie, Makie.FileIO, Makie.GridLayoutBase, Makie.DocStringExtensions
 using Makie: Format
 using Makie.GridLayoutBase: Side

@@ -48,7 +48,7 @@ function Makie.get_tickvalues(ticks::GeoTicks, transform_func, vmin, vmax)
     return _geoticks_values(ticks, vmin, vmax)
 end
 
-function Makie.get_tickvalues(ticks::GeoTicks, vmin, vmax)
+function Makie.get_tickvalues(ticks::GeoTicks, vmin::Real, vmax::Real)
     return _geoticks_values(ticks, vmin, vmax)
 end
 
