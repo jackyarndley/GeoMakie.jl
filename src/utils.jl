@@ -1,25 +1,5 @@
 # # General utility functions
 
-function find_transform_limits(ptrans; lonrange = (-180, 180), latrange = (-90, 90))
-    # Search for a good bound with decent accuracy
-    lons = Float64.(LinRange(lonrange..., 360 * 2))
-    lats = Float64.(LinRange(latrange..., 180 * 2))
-    # avoid PROJ wrapping 180 to -180
-    lons[1]   = nextfloat(lons[1])   |> nextfloat
-    lons[end] = prevfloat(lons[end]) |> prevfloat
-    lats[1]   = nextfloat(lats[1])   |> nextfloat
-    lats[end] = prevfloat(lats[end]) |> prevfloat
-
-    points = Point2{Float64}.(lons, lats')
-    tpoints = ptrans.(points)
-    itpoints = Makie.apply_transform(Makie.inverse_transform(ptrans), tpoints)
-
-    finite_inds = findall(isfinite, itpoints)
-
-    min, max = getindex.(Ref(itpoints), finite_inds[[begin, end]])
-    return (min[1], max[1], min[2], max[2])
-end
-
 # This is the code for the function body of `apply_transform(f::Proj4.Transformation, r::Rect2)` once Proj4.jl is renamed to Proj.jl
 # out_xmin = Ref{Float64}(0.0)
 # out_ymin = Ref{Float64}(0.0)
@@ -141,9 +121,6 @@ function text_bbox(textstring::AbstractString, fontsize::Union{AbstractVector, N
         )
 
     return Rect2f(Makie.boundingbox(glyph_collection, Point3f(0), Makie.to_rotation(rotation)))
-end
-
-function find_outvec(scene, tickcoord_in_inputspace, tickcoord_in_dataspace, Δs)
 end
 
 function rotmat(θ)

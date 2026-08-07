@@ -84,4 +84,17 @@ const _LL = "+proj=longlat +datum=WGS84"
         @test cache.data[key1] == [1]
         @test cache.data[key2] == [2]
     end
+
+    @testset "projection cache is canonical and bounded" begin
+        n0 = length(G._GEO_PROJECTION_CACHE)
+        G.geoprojection("+proj=eqearth +lon_0=123.456", _LL)
+        @test length(G._GEO_PROJECTION_CACHE) == n0 + 1
+        G.geoprojection("+proj=eqearth +lon_0=123.456", _LL)
+        @test length(G._GEO_PROJECTION_CACHE) == n0 + 1
+        # An Observable CRS unwraps to the same canonical key.
+        G.geoprojection(Makie.Observable("+proj=eqearth +lon_0=123.456"), _LL)
+        @test length(G._GEO_PROJECTION_CACHE) == n0 + 1
+        @test G._GEO_PROJECTION_CACHE_MAX >= 1
+        @test length(G._GEO_PROJECTION_CACHE) <= G._GEO_PROJECTION_CACHE_MAX
+    end
 end

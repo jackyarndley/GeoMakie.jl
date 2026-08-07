@@ -70,11 +70,11 @@ Forward/inverse `Proj.Transformation` pair with `always_xy = true`, plus
 `ProjectionTraits`. `source`/`destination` retain the caller's CRS input forms
 (PROJ string, GeoFormatTypes object, or an `Observable` of either).
 """
-struct GeoProjection
+struct GeoProjection{S, D}
     forward::Proj.Transformation
     inverse::Proj.Transformation
-    source
-    destination
+    source::S
+    destination::D
     traits::ProjectionTraits
 end
 
@@ -84,15 +84,26 @@ function GeoProjection(dest, source)
     return GeoProjection(fwd, inv, source, dest, ProjectionTraits(fwd))
 end
 
-# Small, lock-protected cache for string-keyed projections (GFT objects and
-# Observables are still constructed on demand; they are cheap relative to PROJ).
-const _GEO_PROJECTION_CACHE = Dict{Tuple{Any, Any}, GeoProjection}()
+# Bounded, lock-protected cache for projections. Keys are canonical immutable
+# CRS strings (Observables unwrapped, GFT objects stringified) so equivalent
+# inputs share one entry and mutable objects are never held as dictionary keys.
+const _GEO_PROJECTION_CACHE = Dict{Tuple{String, String}, GeoProjection}()
 const _GEO_PROJECTION_CACHE_LOCK = ReentrantLock()
+const _GEO_PROJECTION_CACHE_MAX = 256
+
+_crs_key(x) = string(to_value(x))
 
 function geoprojection(dest, source)
-    key = (dest, source)
+    key = (_crs_key(dest), _crs_key(source))
     lock(_GEO_PROJECTION_CACHE_LOCK) do
-        get!(() -> GeoProjection(dest, source), _GEO_PROJECTION_CACHE, key)
+        haskey(_GEO_PROJECTION_CACHE, key) && return _GEO_PROJECTION_CACHE[key]
+        if length(_GEO_PROJECTION_CACHE) >= _GEO_PROJECTION_CACHE_MAX
+            k = first(keys(_GEO_PROJECTION_CACHE))
+            delete!(_GEO_PROJECTION_CACHE, k)
+        end
+        gp = GeoProjection(dest, source)
+        _GEO_PROJECTION_CACHE[key] = gp
+        return gp
     end
 end
 
