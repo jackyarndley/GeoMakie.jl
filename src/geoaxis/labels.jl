@@ -34,7 +34,7 @@ struct LabelCandidate
     tick_id::Int
     position_px::Point2d
     rotation::Float64
-    alignment::Tuple{Symbol, Symbol}
+    alignment::Tuple{Symbol,Symbol}
     bbox_px::Rect2d
     boundary_component::Int
     boundary_arclength::Float64
@@ -50,22 +50,27 @@ end
 
 function _rotated_bbox(bb::Rect2d, θ::Real)
     θ == 0 && return bb
-    c = cos(θ); s = sin(θ)
-    o = minimum(bb); w = widths(bb)
+    c = cos(θ)
+    s = sin(θ)
+    o = minimum(bb)
+    w = widths(bb)
     corners = (
-        Point2d(o[1], o[2]), Point2d(o[1] + w[1], o[2]),
-        Point2d(o[1], o[2] + w[2]), Point2d(o[1] + w[1], o[2] + w[2]),
+        Point2d(o[1], o[2]),
+        Point2d(o[1] + w[1], o[2]),
+        Point2d(o[1], o[2] + w[2]),
+        Point2d(o[1] + w[1], o[2] + w[2]),
     )
     rx = [c * p[1] - s * p[2] for p in corners]
     ry = [s * p[1] + c * p[2] for p in corners]
-    xmin, xmax = extrema(rx); ymin, ymax = extrema(ry)
+    xmin, xmax = extrema(rx)
+    ymin, ymax = extrema(ry)
     return Rect2d(Vec2d(xmin, ymin), Vec2d(xmax - xmin, ymax - ymin))
 end
 
 function _tick_label_string(value::Real, kind::Symbol, format)
     if format === Makie.automatic || format === nothing
         return kind === :meridian ? longitude_format([Float64(value)])[1] :
-            latitude_format([Float64(value)])[1]
+               latitude_format([Float64(value)])[1]
     elseif format isa Function
         out = format([value])
         return out isa AbstractVector ? string(first(out)) : string(out)
@@ -75,7 +80,8 @@ function _tick_label_string(value::Real, kind::Symbol, format)
 end
 
 function _text_bbox(str::AbstractString, font, fonts, size::Real)
-    nfont = font isa Symbol ?
+    nfont =
+        font isa Symbol ?
         (fonts === nothing ? Makie.defaultfont() : Makie.to_font(fonts, font)) :
         Makie.to_font(font)
     return cached_text_bbox(str, nfont, size)
@@ -89,11 +95,14 @@ function _outward_normal(px::Point2d, comp::Vector{Point2d})
     length(comp) >= 2 || return Point2d(0.0, -1.0)
     cx = sum(p -> p[1], comp) / length(comp)
     cy = sum(p -> p[2], comp) / length(comp)
-    best = Inf; n = Point2d(0.0, -1.0)
-    for i in 2:length(comp)
-        a = comp[i - 1]; b = comp[i]
+    best = Inf
+    n = Point2d(0.0, -1.0)
+    for i = 2:length(comp)
+        a = comp[i-1]
+        b = comp[i]
         # distance from px to segment a-b
-        ab = b .- a; L2 = dot(ab, ab)
+        ab = b .- a
+        L2 = dot(ab, ab)
         t = L2 == 0 ? 0.0 : clamp(dot(px .- a, ab) / L2, 0.0, 1.0)
         q = a .+ t .* ab
         d = norm(px .- q)
@@ -110,10 +119,13 @@ end
 # Unit tangent of the nearest boundary segment of one component at `px`.
 function _boundary_tangent_at(px::Point2d, comp::Vector{Point2d})
     length(comp) >= 2 || return Point2d(0.0, 0.0)
-    best = Inf; t = Point2d(0.0, 0.0)
-    for i in 2:length(comp)
-        a = comp[i - 1]; b = comp[i]
-        ab = b .- a; L2 = dot(ab, ab)
+    best = Inf
+    t = Point2d(0.0, 0.0)
+    for i = 2:length(comp)
+        a = comp[i-1]
+        b = comp[i]
+        ab = b .- a
+        L2 = dot(ab, ab)
         u = L2 == 0 ? 0.0 : clamp(dot(px .- a, ab) / L2, 0.0, 1.0)
         d = norm(px .- (a .+ u .* ab))
         if d < best
@@ -136,13 +148,23 @@ end
 
 Build one candidate with an actual measured pixel-space bounding box.
 """
-function label_candidate(tick_id::Int, point_px::Point2d, text::String,
-        font, fontsize::Real, rotation::Real,
-        alignment::Tuple{Symbol, Symbol}, boundary_component::Int,
-        boundary_arclength::Float64;
-        interior::Bool = false, side::Symbol = :bottom,
-        tangent::Point2d = Point2d(0, 0), boundary_tangent::Point2d = Point2d(0, 0),
-        preferred_side::Symbol = side, placement_class::Symbol = :outside)
+function label_candidate(
+    tick_id::Int,
+    point_px::Point2d,
+    text::String,
+    font,
+    fontsize::Real,
+    rotation::Real,
+    alignment::Tuple{Symbol,Symbol},
+    boundary_component::Int,
+    boundary_arclength::Float64;
+    interior::Bool = false,
+    side::Symbol = :bottom,
+    tangent::Point2d = Point2d(0, 0),
+    boundary_tangent::Point2d = Point2d(0, 0),
+    preferred_side::Symbol = side,
+    placement_class::Symbol = :outside,
+)
     bb = cached_text_bbox(text, font, fontsize)
     w = widths(bb)
     # Anchor the measured text box at the candidate position (centred); overlap
@@ -151,24 +173,47 @@ function label_candidate(tick_id::Int, point_px::Point2d, text::String,
     bbox_px = Rect2d(Vec2d(minimum(rel) .+ Vec2d(point_px[1], point_px[2])), widths(rel))
     # Small positive penalty away from the map centre keeps ties deterministic.
     score = boundary_arclength + 1.0e-6 * boundary_component
-    return LabelCandidate(tick_id, point_px, Float64(rotation), alignment,
-        bbox_px, boundary_component, boundary_arclength, score, text, interior, side,
-        tangent, boundary_tangent, preferred_side, placement_class)
+    return LabelCandidate(
+        tick_id,
+        point_px,
+        Float64(rotation),
+        alignment,
+        bbox_px,
+        boundary_component,
+        boundary_arclength,
+        score,
+        text,
+        interior,
+        side,
+        tangent,
+        boundary_tangent,
+        preferred_side,
+        placement_class,
+    )
 end
 
 function _label_side(n::Point2d)
-    return abs(n[1]) >= abs(n[2]) ?
-        (n[1] < 0 ? :left : :right) :
-        (n[2] < 0 ? :bottom : :top)
+    return abs(n[1]) >= abs(n[2]) ? (n[1] < 0 ? :left : :right) :
+           (n[2] < 0 ? :bottom : :top)
 end
 
 # Interior candidate for a parallel that does not reach the projected boundary
 # (the polar-cap case: parallels are concentric rings inside the map). The label
 # is placed at the point of the parallel closest to the requested side and offset
 # outward from the map centre so it reads as a latitude label on that parallel.
-function _parallel_interior_candidate(curve::GraticuleCurve, tick_id::Int, side::Symbol,
-        center::Point2d, ticklabelpad::Real, rotation::Real,
-        alignment, font, fonts, fontsize::Real, format)
+function _parallel_interior_candidate(
+    curve::GraticuleCurve,
+    tick_id::Int,
+    side::Symbol,
+    center::Point2d,
+    ticklabelpad::Real,
+    rotation::Real,
+    alignment,
+    font,
+    fonts,
+    fontsize::Real,
+    format,
+)
     pieces = _finite_pieces(curve.projected_geometry)
     isempty(pieces) && return nothing
     pts = reduce(vcat, pieces; init = Point2d[])
@@ -188,12 +233,26 @@ function _parallel_interior_candidate(curve::GraticuleCurve, tick_id::Int, side:
     tangent = _curve_tangent_at(curve.projected_geometry, anchor)
     text = _tick_label_string(curve.coordinate, :parallel, format)
     align = alignment === Makie.automatic ? _default_alignment(n) : alignment
-    nfont = font isa Symbol ?
+    nfont =
+        font isa Symbol ?
         (fonts === nothing ? Makie.defaultfont() : Makie.to_font(fonts, font)) :
         Makie.to_font(font)
-    return label_candidate(tick_id, Point2d(pos...), text, nfont, fontsize,
-        rotation, align, 0, 0.0; interior = true, side = side,
-        tangent = tangent, preferred_side = side, placement_class = :inline)
+    return label_candidate(
+        tick_id,
+        Point2d(pos...),
+        text,
+        nfont,
+        fontsize,
+        rotation,
+        align,
+        0,
+        0.0;
+        interior = true,
+        side = side,
+        tangent = tangent,
+        preferred_side = side,
+        placement_class = :inline,
+    )
 end
 
 # Split a NaN-separated polyline into its finite pieces so tangents and inline
@@ -216,17 +275,20 @@ end
 # seam-crossing curve never produces a tangent across the NaN separator.
 function _curve_tangent_at(pts::Vector{Point2d}, anchor::Point2d)
     pieces = _finite_pieces(pts)
-    best = nothing; bestd = Inf
+    best = nothing
+    bestd = Inf
     for piece in pieces, p in piece
         d = norm(p .- anchor)
         if d < bestd
-            bestd = d; best = piece
+            bestd = d
+            best = piece
         end
     end
     best === nothing && return Point2d(1.0, 0.0)
     length(best) < 2 && return Point2d(1.0, 0.0)
     _, i = findmin(norm(p .- anchor) for p in best)
-    a = best[max(i - 1, 1)]; b = best[min(i + 1, length(best))]
+    a = best[max(i - 1, 1)]
+    b = best[min(i + 1, length(best))]
     t = b .- a
     return norm(t) > 1.0e-9 ? t ./ norm(t) : Point2d(1.0, 0.0)
 end
@@ -234,8 +296,16 @@ end
 # Inline candidate: label placed on/near the graticule itself, inside the map,
 # with rotation following the curve tangent. Used by `xticklabelplacement =
 # :inline` / `yticklabelplacement = :inline`.
-function _inline_candidate(curve::GraticuleCurve, tick_id::Int, kind::Symbol,
-        placement_pad::Real, font, fonts, fontsize::Real, format)
+function _inline_candidate(
+    curve::GraticuleCurve,
+    tick_id::Int,
+    kind::Symbol,
+    placement_pad::Real,
+    font,
+    fonts,
+    fontsize::Real,
+    format,
+)
     pieces = _finite_pieces(curve.projected_geometry)
     isempty(pieces) && return nothing
     piece = argmax(length, pieces)
@@ -247,13 +317,26 @@ function _inline_candidate(curve::GraticuleCurve, tick_id::Int, kind::Symbol,
     pos = anchor .+ normal .* placement_pad
     text = _tick_label_string(curve.coordinate, kind, format)
     rotation = atan(tangent[2], tangent[1])
-    nfont = font isa Symbol ?
+    nfont =
+        font isa Symbol ?
         (fonts === nothing ? Makie.defaultfont() : Makie.to_font(fonts, font)) :
         Makie.to_font(font)
-    return label_candidate(tick_id, Point2d(pos...), text, nfont, fontsize,
-        rotation, (:center, :center), 0, 0.0;
-        interior = true, side = :auto, tangent = tangent,
-        preferred_side = :auto, placement_class = :inline)
+    return label_candidate(
+        tick_id,
+        Point2d(pos...),
+        text,
+        nfont,
+        fontsize,
+        rotation,
+        (:center, :center),
+        0,
+        0.0;
+        interior = true,
+        side = :auto,
+        tangent = tangent,
+        preferred_side = :auto,
+        placement_class = :inline,
+    )
 end
 
 """
@@ -273,68 +356,114 @@ _boundary_components(b::ProjectionBoundary) = b.components
 _boundary_components(b::Vector{Vector{Point2d}}) = b
 _boundary_components(b::Vector{Point2d}) = [b]
 
-function place_graticule_labels(curves::Vector{GraticuleCurve}, ticks, kind::Symbol,
-        boundary_px;
-        side::Symbol = kind === :meridian ? :bottom : :left,
-        ticklabelpad::Real = 5.0, ticksize::Real = 6.0, tickalign::Real = 0.0,
-        rotation::Real = 0.0, alignment = Makie.automatic,
-        font = :regular, fonts = nothing, fontsize::Real = 16.0,
-        format = Makie.automatic,
-        allow_duplicates::Bool = false, quality::Symbol = :final,
-        placement::Symbol = :outside, center = nothing)
+function place_graticule_labels(
+    curves::Vector{GraticuleCurve},
+    ticks,
+    kind::Symbol,
+    boundary_px;
+    side::Symbol = kind === :meridian ? :bottom : :left,
+    ticklabelpad::Real = 5.0,
+    ticksize::Real = 6.0,
+    tickalign::Real = 0.0,
+    rotation::Real = 0.0,
+    alignment = Makie.automatic,
+    font = :regular,
+    fonts = nothing,
+    fontsize::Real = 16.0,
+    format = Makie.automatic,
+    allow_duplicates::Bool = false,
+    quality::Symbol = :final,
+    placement::Symbol = :outside,
+    center = nothing,
+)
     isempty(curves) && return LabelCandidate[]
     comps = _boundary_components(boundary_px)
     isempty(comps) && return LabelCandidate[]
     all(c -> length(c) < 3, comps) && return LabelCandidate[]
     flat = reduce(vcat, comps; init = Point2d[])
-    center = center === nothing ?
-        (isempty(flat) ? Point2d(0.0, 0.0) :
-            Point2d(sum(p -> p[1], flat) / length(flat),
-                sum(p -> p[2], flat) / length(flat))) :
-        Point2d(center[1], center[2])
-    candidates = Tuple{LabelCandidate, Bool}[]   # (candidate, side_matches)
+    center =
+        center === nothing ?
+        (
+            isempty(flat) ? Point2d(0.0, 0.0) :
+            Point2d(
+                sum(p -> p[1], flat) / length(flat),
+                sum(p -> p[2], flat) / length(flat),
+            )
+        ) : Point2d(center[1], center[2])
+    candidates = Tuple{LabelCandidate,Bool}[]   # (candidate, side_matches)
     for curve in curves
         curve.kind == kind || continue
         tick_id = findfirst(≈(curve.coordinate), ticks)
         tick_id === nothing && continue
         if placement === :inline
-            cand = _inline_candidate(curve, tick_id, kind, ticklabelpad,
-                font, fonts, fontsize, format)
+            cand = _inline_candidate(
+                curve,
+                tick_id,
+                kind,
+                ticklabelpad,
+                font,
+                fonts,
+                fontsize,
+                format,
+            )
             cand === nothing || push!(candidates, (cand, true))
             continue
         end
         ixs = graticule_boundary_intersections(curve, comps)
         if isempty(ixs) && kind === :parallel
-            int_cand = _parallel_interior_candidate(curve, tick_id, side, center,
-                ticklabelpad, rotation, alignment, font, fonts, fontsize, format)
+            int_cand = _parallel_interior_candidate(
+                curve,
+                tick_id,
+                side,
+                center,
+                ticklabelpad,
+                rotation,
+                alignment,
+                font,
+                fonts,
+                fontsize,
+                format,
+            )
             int_cand === nothing || push!(candidates, (int_cand, true))
             continue
         end
         # Build EVERY valid intersection for the curve, then select the best
         # candidate below: the first requested-side match (stable arc order), or
         # the best fallback when no intersection is on the requested side.
-        curve_cands = Tuple{LabelCandidate, Bool}[]
+        curve_cands = Tuple{LabelCandidate,Bool}[]
         for (px, comp, arc) in ixs
             comp_pts = comps[comp]
             n = _outward_normal(px, comp_pts)
             # Prefer the requested side; accept the intersection only when the
             # outward normal points that way (with a tolerance for curved spines).
-            side_matches = side === :bottom ? n[2] < -0.1 :
+            side_matches =
+                side === :bottom ? n[2] < -0.1 :
                 side === :top ? n[2] > 0.1 :
-                side === :left ? n[1] < -0.1 :
-                side === :right ? n[1] > 0.1 : true
+                side === :left ? n[1] < -0.1 : side === :right ? n[1] > 0.1 : true
             pos = px .+ n .* (ticksize * (1.0 - tickalign) + ticklabelpad)
             text = _tick_label_string(curve.coordinate, kind, format)
             align = alignment === Makie.automatic ? _default_alignment(n) : alignment
-            nfont = font isa Symbol ?
+            nfont =
+                font isa Symbol ?
                 (fonts === nothing ? Makie.defaultfont() : Makie.to_font(fonts, font)) :
                 Makie.to_font(font)
             ctangent = _curve_tangent_at(curve.projected_geometry, px)
             btangent = _boundary_tangent_at(px, comp_pts)
-            cand = label_candidate(tick_id, Point2d(pos...), text, nfont,
-                fontsize, rotation, align, comp, arc; side = _label_side(n),
-                tangent = ctangent, boundary_tangent = btangent,
-                preferred_side = side)
+            cand = label_candidate(
+                tick_id,
+                Point2d(pos...),
+                text,
+                nfont,
+                fontsize,
+                rotation,
+                align,
+                comp,
+                arc;
+                side = _label_side(n),
+                tangent = ctangent,
+                boundary_tangent = btangent,
+                preferred_side = side,
+            )
             push!(curve_cands, (cand, side_matches))
         end
         if !isempty(curve_cands)
@@ -383,23 +512,45 @@ end
 
 function _candidate_overlaps(cand::LabelCandidate, accepted::Vector{LabelCandidate})
     return any(accepted) do a
-        xoverlap = max(0.0,
-            min(a.bbox_px.origin[1] + a.bbox_px.widths[1], cand.bbox_px.origin[1] + cand.bbox_px.widths[1]) -
-            max(a.bbox_px.origin[1], cand.bbox_px.origin[1]))
-        yoverlap = max(0.0,
-            min(a.bbox_px.origin[2] + a.bbox_px.widths[2], cand.bbox_px.origin[2] + cand.bbox_px.widths[2]) -
-            max(a.bbox_px.origin[2], cand.bbox_px.origin[2]))
+        xoverlap = max(
+            0.0,
+            min(
+                a.bbox_px.origin[1] + a.bbox_px.widths[1],
+                cand.bbox_px.origin[1] + cand.bbox_px.widths[1],
+            ) - max(a.bbox_px.origin[1], cand.bbox_px.origin[1]),
+        )
+        yoverlap = max(
+            0.0,
+            min(
+                a.bbox_px.origin[2] + a.bbox_px.widths[2],
+                cand.bbox_px.origin[2] + cand.bbox_px.widths[2],
+            ) - max(a.bbox_px.origin[2], cand.bbox_px.origin[2]),
+        )
         xoverlap > 2.0 && yoverlap > 2.0
     end
 end
 
 function _shift_candidate(cand::LabelCandidate, delta::Point2d)
     return LabelCandidate(
-        cand.tick_id, cand.position_px .+ delta, cand.rotation, cand.alignment,
-        Rect2d(Vec2d(cand.bbox_px.origin .+ Vec2d(delta[1], delta[2])), widths(cand.bbox_px)),
-        cand.boundary_component, cand.boundary_arclength, cand.score, cand.text,
-        cand.interior, cand.side, cand.tangent, cand.boundary_tangent,
-        cand.preferred_side, cand.placement_class)
+        cand.tick_id,
+        cand.position_px .+ delta,
+        cand.rotation,
+        cand.alignment,
+        Rect2d(
+            Vec2d(cand.bbox_px.origin .+ Vec2d(delta[1], delta[2])),
+            widths(cand.bbox_px),
+        ),
+        cand.boundary_component,
+        cand.boundary_arclength,
+        cand.score,
+        cand.text,
+        cand.interior,
+        cand.side,
+        cand.tangent,
+        cand.boundary_tangent,
+        cand.preferred_side,
+        cand.placement_class,
+    )
 end
 
 # Deterministic local improvement: try shifting rejected labels a few label
@@ -410,7 +561,7 @@ function _local_improve!(accepted::Vector{LabelCandidate}, rejected::Vector{Labe
         t = cand.boundary_tangent
         w = cand.bbox_px.widths[1]
         placed = false
-        for dir in (1, -1), k in 1:3
+        for dir in (1, -1), k = 1:3
             shifted = _shift_candidate(cand, t .* (dir * k * (w + 4.0)))
             if !_candidate_overlaps(shifted, accepted)
                 push!(accepted, shifted)
@@ -426,7 +577,7 @@ end
 function renderable_label_data(candidates::Vector{LabelCandidate})
     positions = Point2d[c.position_px for c in candidates]
     texts = String[c.text for c in candidates]
-    aligns = Tuple{Symbol, Symbol}[c.alignment for c in candidates]
+    aligns = Tuple{Symbol,Symbol}[c.alignment for c in candidates]
     rotations = Float64[c.rotation for c in candidates]
     return positions, texts, aligns, rotations
 end

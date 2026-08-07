@@ -43,7 +43,7 @@ julia> geoformat_ticklabels([1.0, 1.1, 2.5, 25])
 """
 function geoformat_ticklabels(nums)
     labels = fill("", length(nums))
-    for i in 1:length(nums)
+    for i = 1:length(nums)
         labels[i] = if round(nums[i]) == nums[i]
             string(Int(nums[i]), 'ᵒ')
         else
@@ -69,7 +69,7 @@ end
 longitude_format(nums) = side_degree_format(nums, 'W', 'E', 'ᵒ')
 latitude_format(nums) = side_degree_format(nums, 'S', 'N', 'ᵒ')
 
-function _replace_if_automatic(typ::Type{T}, attribute::Symbol, auto) where T
+function _replace_if_automatic(typ::Type{T}, attribute::Symbol, auto) where {T}
     default_attr_vals = Makie.default_attribute_values(T, nothing)
 
     if to_value(get(default_attr_vals, attribute, automatic)) == automatic
@@ -80,69 +80,103 @@ function _replace_if_automatic(typ::Type{T}, attribute::Symbol, auto) where T
 end
 
 # Project any point to coordinates in pixel space
-function project_to_pixelspace(scene, point::Point{N, T}) where {N, T}
+function project_to_pixelspace(scene, point::Point{N,T}) where {N,T}
     @assert N ≤ 3
-    return Point{N, T}(
+    return Point{N,T}(
         Makie.project(
             # obtain the camera of the Scene which will project to its screenspace
             camera(scene),
             # go from dataspace (transformation applied to inputspace) to pixelspace
-            :data, :pixel,
+            :data,
+            :pixel,
             # apply the transform to go from inputspace to dataspace
-            Makie.apply_transform(
-                scene.transformation.transform_func[],
-                point
-            )
-        )
+            Makie.apply_transform(scene.transformation.transform_func[], point),
+        ),
     )
 end
 
-function project_to_pixelspace(scene, points::AbstractVector{Point{N, T}}) where {N, T}
-    Point{N, T}.(
+function project_to_pixelspace(scene, points::AbstractVector{Point{N,T}}) where {N,T}
+    Point{N,T}.(
         Makie.project.(
             # obtain the camera of the Scene which will project to its screenspace
             Ref(Makie.camera(scene)),
             # go from dataspace (transformation applied to inputspace) to pixelspace
-            Ref(:data), Ref(:pixel),
+            Ref(:data),
+            Ref(:pixel),
             # apply the transform to go from inputspace to dataspace
-            Makie.apply_transform(
-                scene.transformation.transform_func[],
-                points
-            )
-        )
+            Makie.apply_transform(scene.transformation.transform_func[], points),
+        ),
     )
 end
 
-function text_bbox(textstring::AbstractString, fontsize::Union{AbstractVector, Number}, font, fonts, align, rotation, justification, lineheight)
+function text_bbox(
+    textstring::AbstractString,
+    fontsize::Union{AbstractVector,Number},
+    font,
+    fonts,
+    align,
+    rotation,
+    justification,
+    lineheight,
+)
     glyph_collection = Makie.layout_text(
-            textstring, fontsize,
-            string(font), fonts, align, rotation, justification, lineheight,
-            RGBAf(0,0,0,0), RGBAf(0,0,0,0), 0f0, 0f0
-        )
+        textstring,
+        fontsize,
+        string(font),
+        fonts,
+        align,
+        rotation,
+        justification,
+        lineheight,
+        RGBAf(0, 0, 0, 0),
+        RGBAf(0, 0, 0, 0),
+        0.0f0,
+        0.0f0,
+    )
 
-    return Rect2f(Makie.boundingbox(glyph_collection, Point3f(0), Makie.to_rotation(rotation)))
+    return Rect2f(
+        Makie.boundingbox(glyph_collection, Point3f(0), Makie.to_rotation(rotation)),
+    )
 end
 
 function rotmat(θ)
-    return Mat{2, 2}(cos(θ), sin(θ), -sin(θ), cos(θ))
+    return Mat{2,2}(cos(θ), sin(θ), -sin(θ), cos(θ))
 end
 # Direction finder - find how to displace the tick so that it is out of the axis
-function directional_pad(scene, limits, tickcoord_in_inputspace, ticklabel::AbstractString, tickpad, ticksize, tickfont, tickrotation; ds = 0.01)
+function directional_pad(
+    scene,
+    limits,
+    tickcoord_in_inputspace,
+    ticklabel::AbstractString,
+    tickpad,
+    ticksize,
+    tickfont,
+    tickrotation;
+    ds = 0.01,
+)
     # Define shorthand functions for dev purposes - these can be removed before release
     tfunc = x -> Makie.apply_transform(scene.transformation.transform_func[], x)
-    inv_tfunc = x -> Makie.apply_transform(Makie.inverse_transform(scene.transformation.transform_func[]), x)
+    inv_tfunc =
+        x -> Makie.apply_transform(
+            Makie.inverse_transform(scene.transformation.transform_func[]),
+            x,
+        )
     # convert tick coordinate to dataspace
     tickcoord_in_dataspace = tfunc(tickcoord_in_inputspace)
     # determine direction to go in order to stay inbounds.
     xdir = tickcoord_in_inputspace[1] < 0 ? +1 : -1
     ydir = tickcoord_in_inputspace[2] < 0 ? +1 : -1
-    Δs = iszero(sum(tickpad)) ? Vec2f(0) : Vec2f(xdir, ydir) .* tickpad ./ (sum(tickpad)) * ds
+    Δs =
+        iszero(sum(tickpad)) ? Vec2f(0) :
+        Vec2f(xdir, ydir) .* tickpad ./ (sum(tickpad)) * ds
 
     # find the x and y directions
     # multiply by the sign in order to have them going outwards at any point
     Σp = sign(sum(Δs)) * inv_tfunc(tickcoord_in_dataspace + Δs)
     # project back to pixel space
-    pixel_Δx, pixel_Δy = project_to_pixelspace(scene, Σp) - project_to_pixelspace(scene, tickcoord_in_inputspace)
+    pixel_Δx, pixel_Δy =
+        project_to_pixelspace(scene, Σp) -
+        project_to_pixelspace(scene, tickcoord_in_inputspace)
     # invert direction - the vectors were previously facing the inside,
     # now they will face outside .
     dx = -pixel_Δx
@@ -159,13 +193,17 @@ function directional_pad(scene, limits, tickcoord_in_inputspace, ticklabel::Abst
     # end
 
     # The vector which is normal to the plot in pixel-space.
-    normal_vec = Vec2f((dx, dy)./sqrt(dx^2 + dy^2))
+    normal_vec = Vec2f((dx, dy) ./ sqrt(dx^2 + dy^2))
 
     # We have computed the normal vector - now we have to get tick extents
     fonts = theme(scene, :fonts)
     extents = text_bbox(
-        ticklabel, ticksize,
-        tickfont, fonts, Vec2f(0), tickrotation,
+        ticklabel,
+        ticksize,
+        tickfont,
+        fonts,
+        Vec2f(0),
+        tickrotation,
         0.0, # Makie.to_value(Makie.theme(scene, :justification)),
         0.0, # Makie.to_value(Makie.theme(scene, :lineheight))
     )
@@ -205,7 +243,13 @@ julia> band(lb, ub; color = :red)
 ```
 """
 function geom_to_bands(geom; height = 100_000.0, base = 0.0, kwargs...)
-    geom_lower = GO.applyreduce(vcat, GO.TraitTarget(GI.AbstractCurveTrait), geom; init = (NaN, NaN, NaN), kwargs...) do geom
+    geom_lower = GO.applyreduce(
+        vcat,
+        GO.TraitTarget(GI.AbstractCurveTrait),
+        geom;
+        init = (NaN, NaN, NaN),
+        kwargs...,
+    ) do geom
         points = GO.forcexyz(geom, base).geom
         push!(points, (NaN, NaN, NaN))
         return points
@@ -248,14 +292,23 @@ contourf!(ga, λ_c, φ_c, z_c)
 ```
 """
 function add_cyclic_point(lons::AbstractVector, data::AbstractMatrix; period = 360)
-    size(data, 1) == length(lons) ||
-        throw(ArgumentError("`length(lons)` ($(length(lons))) must equal `size(data, 1)` ($(size(data, 1)))"))
+    size(data, 1) == length(lons) || throw(
+        ArgumentError(
+            "`length(lons)` ($(length(lons))) must equal `size(data, 1)` ($(size(data, 1)))",
+        ),
+    )
     lons_c = vcat(collect(lons), lons[begin] + period)
     data_c = vcat(data, data[begin:begin, :])
     return lons_c, data_c
 end
 
-function add_cyclic_point(lons::AbstractMatrix, lats::AbstractMatrix, data::AbstractMatrix; dims::Int = 1, period = 360)
+function add_cyclic_point(
+    lons::AbstractMatrix,
+    lats::AbstractMatrix,
+    data::AbstractMatrix;
+    dims::Int = 1,
+    period = 360,
+)
     (size(lons) == size(lats) == size(data)) ||
         throw(ArgumentError("`lons`, `lats` and `data` must have the same size"))
     first_slice(A) = selectdim(A, dims, firstindex(A, dims):firstindex(A, dims))

@@ -66,7 +66,7 @@ end
 function _adaptive_boundary_points(gp::GeoProjection)
     proj = _projector(gp)
     pts = Point2d[]
-    for lon in -180.0:0.5:180.0, lat in -89.5:0.5:89.5
+    for lon = -180.0:0.5:180.0, lat = -89.5:0.5:89.5
         xy = proj(lon, lat)
         (isfinite(xy[1]) && isfinite(xy[2])) && push!(pts, Point2d(xy[1], xy[2]))
     end

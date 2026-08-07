@@ -38,28 +38,58 @@ function ProjectionTraits(t::Proj.Transformation)
     if clip isa NoClip
         return ProjectionTraits(:continuous, clip, :adaptive, true, Float64[], Float64[])
     elseif clip isa AntimeridianClip
-        seams = Float64[clip.lon0 - 180.0, clip.lon0 + 180.0]
+        seams = Float64[clip.lon0-180.0, clip.lon0+180.0]
         sing = clip.lat_max < 90.0 ? Float64[-clip.lat_max, clip.lat_max] : Float64[]
         return ProjectionTraits(:seamed, clip, :antimeridian, true, seams, sing)
     elseif clip isa ObliqueAntimeridianClip
-        return ProjectionTraits(:oblique_seamed, clip, :rotated_antimeridian,
-            true, Float64[-180.0, 180.0], Float64[])
+        return ProjectionTraits(
+            :oblique_seamed,
+            clip,
+            :rotated_antimeridian,
+            true,
+            Float64[-180.0, 180.0],
+            Float64[],
+        )
     elseif clip isa CircleClip
-        return ProjectionTraits(:azimuthal_or_perspective, clip, :horizon,
-            true, Float64[], Float64[])
+        return ProjectionTraits(
+            :azimuthal_or_perspective,
+            clip,
+            :horizon,
+            true,
+            Float64[],
+            Float64[],
+        )
     elseif clip isa PolygonClip
         # Interrupted projections are periodic in longitude per lobe, but not as a
         # single global interval; mark them non-periodic for conservative wrapping.
-        return ProjectionTraits(:interrupted, clip, :lobes,
-            false, Float64[-180.0, 180.0], Float64[])
+        return ProjectionTraits(
+            :interrupted,
+            clip,
+            :lobes,
+            false,
+            Float64[-180.0, 180.0],
+            Float64[],
+        )
     elseif clip isa ProjectedClip
-        return ProjectionTraits(:projected_jump, clip, :adaptive,
-            true, Float64[], Float64[])
+        return ProjectionTraits(
+            :projected_jump,
+            clip,
+            :adaptive,
+            true,
+            Float64[],
+            Float64[],
+        )
     else
         # Conservative fallback for unknown/custom pipelines: use the adaptive
         # sampled boundary so the map still frames itself.
-        return ProjectionTraits(:custom, clip, :adaptive,
-            true, Float64[-180.0, 180.0], Float64[])
+        return ProjectionTraits(
+            :custom,
+            clip,
+            :adaptive,
+            true,
+            Float64[-180.0, 180.0],
+            Float64[],
+        )
     end
 end
 
@@ -70,7 +100,7 @@ Forward/inverse `Proj.Transformation` pair with `always_xy = true`, plus
 `ProjectionTraits`. `source`/`destination` retain the caller's CRS input forms
 (PROJ string, GeoFormatTypes object, or an `Observable` of either).
 """
-struct GeoProjection{S, D}
+struct GeoProjection{S,D}
     forward::Proj.Transformation
     inverse::Proj.Transformation
     source::S
@@ -87,7 +117,7 @@ end
 # Bounded, lock-protected cache for projections. Keys are canonical immutable
 # CRS strings (Observables unwrapped, GFT objects stringified) so equivalent
 # inputs share one entry and mutable objects are never held as dictionary keys.
-const _GEO_PROJECTION_CACHE = Dict{Tuple{String, String}, GeoProjection}()
+const _GEO_PROJECTION_CACHE = Dict{Tuple{String,String},GeoProjection}()
 const _GEO_PROJECTION_CACHE_LOCK = ReentrantLock()
 const _GEO_PROJECTION_CACHE_MAX = 256
 
@@ -132,9 +162,9 @@ place instead of re-selecting it inline:
 struct ProjectionRenderContext
     projection::GeoProjection
     clip::SphereClip
-    geographic_transform
-    display_transform
-    projector
+    geographic_transform::Any
+    display_transform::Any
+    projector::Any
     resample_scale::Float64
     rotated::Bool
 end
@@ -152,8 +182,15 @@ function ProjectionRenderContext(dest, source; quality_scale::Real = 1.0)
         t
     end
     proj = _projector(display)
-    return ProjectionRenderContext(gp, clip, t, display, proj,
-        resample_scale(proj) * Float64(quality_scale), rotated)
+    return ProjectionRenderContext(
+        gp,
+        clip,
+        t,
+        display,
+        proj,
+        resample_scale(proj) * Float64(quality_scale),
+        rotated,
+    )
 end
 
 ProjectionRenderContext(gp::GeoProjection; quality_scale::Real = 1.0) =

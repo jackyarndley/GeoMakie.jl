@@ -23,16 +23,48 @@ const _IS_GL = lowercase(get(ENV, "GEOMAKIE_TEST_BACKEND", "cairo")) == "gl"
 
     cases = [
         ("poly", () -> poly!(ga, land[1:20]; color = (:gray70, 0.55))),
-        ("line", () -> lines!(ga, [-160.0, 160.0], [10.0, 40.0]; color = :red, linewidth = 5)),
-        ("contour", () -> contour!(ga, -180:20:180, -90:20:90,
-            [sin(deg2rad(x)) * cos(deg2rad(y)) for x in -180:20:180, y in -90:20:90])),
-        ("contourf", () -> contourf!(ga, -180:20:180, -90:20:90,
-            [sin(deg2rad(x)) * cos(deg2rad(y)) for x in -180:20:180, y in -90:20:90])),
-        ("surface", () -> surface!(ga, -180:30:180, -90:30:90,
-            [sin(deg2rad(x)) * cos(deg2rad(y)) for x in -180:30:180, y in -90:30:90];
-            shading = Makie.NoShading)),
-        ("heatmap", () -> heatmap!(ga, -180:20:180, -90:20:90,
-            [sin(deg2rad(x)) * cos(deg2rad(y)) for x in -180:20:180, y in -90:20:90])),
+        (
+            "line",
+            () ->
+                lines!(ga, [-160.0, 160.0], [10.0, 40.0]; color = :red, linewidth = 5),
+        ),
+        (
+            "contour",
+            () -> contour!(
+                ga,
+                -180:20:180,
+                -90:20:90,
+                [sin(deg2rad(x)) * cos(deg2rad(y)) for x = -180:20:180, y = -90:20:90],
+            ),
+        ),
+        (
+            "contourf",
+            () -> contourf!(
+                ga,
+                -180:20:180,
+                -90:20:90,
+                [sin(deg2rad(x)) * cos(deg2rad(y)) for x = -180:20:180, y = -90:20:90],
+            ),
+        ),
+        (
+            "surface",
+            () -> surface!(
+                ga,
+                -180:30:180,
+                -90:30:90,
+                [sin(deg2rad(x)) * cos(deg2rad(y)) for x = -180:30:180, y = -90:30:90];
+                shading = Makie.NoShading,
+            ),
+        ),
+        (
+            "heatmap",
+            () -> heatmap!(
+                ga,
+                -180:20:180,
+                -90:20:90,
+                [sin(deg2rad(x)) * cos(deg2rad(y)) for x = -180:20:180, y = -90:20:90],
+            ),
+        ),
     ]
 
     for (name, makeplot) in cases

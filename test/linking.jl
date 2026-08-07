@@ -13,7 +13,7 @@ const G = GeoMakie
         @test x2 !== nothing
         @test G.width(x2) ≈ 120
         @test y2 === nothing
-        @test a2.finallimits[] isa GeometryBasics.HyperRectangle{2, Float64}
+        @test a2.finallimits[] isa GeometryBasics.HyperRectangle{2,Float64}
     end
 
     @testset "linkyaxes! shares latitude only" begin

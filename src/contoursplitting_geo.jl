@@ -49,12 +49,27 @@ end
 # Split each band polygon at the clip's discontinuity (full d3 pipeline: rotate → clip →
 # resample), replicating its colour onto every resulting piece. `polys`/`colors` are parallel
 # vectors from the `contourf` recipe; `project`/`scale` drive the adaptive resampler.
-function _split_polys_colors(polys, colors, clip::SphereClip, project, scale; rotated::Bool = false)
+function _split_polys_colors(
+    polys,
+    colors,
+    clip::SphereClip,
+    project,
+    scale;
+    rotated::Bool = false,
+)
     newpolys = GeometryBasics.Polygon{2,Float32}[]
     newcolors = eltype(colors)[]
     for (poly, col) in zip(polys, colors)
-        for np in _split_polygon(clip, _poly_rings(poly), project, scale; rotated = rotated, winding = :planar)
-            push!(newpolys, np); push!(newcolors, col)
+        for np in _split_polygon(
+            clip,
+            _poly_rings(poly),
+            project,
+            scale;
+            rotated = rotated,
+            winding = :planar,
+        )
+            push!(newpolys, np)
+            push!(newcolors, col)
         end
     end
     return (newpolys, newcolors)
@@ -65,7 +80,10 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contourf)
     source = pop!(plot.kw, :source, axis.source)
     transformfunc = lift(create_transform, axis.dest, source)
     if !Makie.not_in_data_space(plot)
-        plot.kw[:transformation] = Makie.Transformation(transformfunc; get(plot.kw, :transformation, Attributes())...)
+        plot.kw[:transformation] = Makie.Transformation(
+            transformfunc;
+            get(plot.kw, :transformation, Attributes())...,
+        )
     end
     reset_limits = to_value(pop!(plot.kw, :reset_limits, true))
 
@@ -81,8 +99,14 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contourf)
         # Option B: clip/resample in the canonical rotated frame and draw with the centred
         # projector (lon_0=0 / native centred), avoiding PROJ's half-open longitude-wrap
         # collapsing the seam onto one map edge (the moll +lon_0=180 bug, bertin's ±π seam).
-        return _split_polys_colors(polys, colors, rctx.clip, rctx.projector,
-            rctx.resample_scale; rotated = rctx.rotated)
+        return _split_polys_colors(
+            polys,
+            colors,
+            rctx.clip,
+            rctx.projector,
+            rctx.resample_scale;
+            rotated = rctx.rotated,
+        )
     end
 
     # The split child must draw in the SAME frame the split polys were emitted in: centred
@@ -94,7 +118,8 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contourf)
     if child !== nothing
         _freeze_hide_child!(child)
         splitchild = Makie.poly!(
-            plot, plot.split_polys;
+            plot,
+            plot.split_polys;
             transformation = Makie.Transformation(_child_transformfunc(axis, source)),
             colormap = plot.computed_colormap,
             colorrange = plot.computed_colorrange,
@@ -132,7 +157,7 @@ end
 # even when `_collect_polys` expands MultiPolygon components.
 function _user_polys(geom)
     if geom isa AbstractVector || geom isa Tuple || _is_geom_collection(geom)
-        pairs = Tuple{Int, Any}[]
+        pairs = Tuple{Int,Any}[]
         for (k, g) in enumerate(geom)
             for p in _collect_polys(g)
                 push!(pairs, (k, p))
@@ -140,7 +165,7 @@ function _user_polys(geom)
         end
         return pairs
     else
-        return Tuple{Int, Any}[(1, p) for p in _collect_polys(geom)]
+        return Tuple{Int,Any}[(1, p) for p in _collect_polys(geom)]
     end
 end
 
@@ -150,13 +175,23 @@ end
 function _split_geom(geom, dest, source)
     rctx = ProjectionRenderContext(dest, source)
     clip = rctx.clip
-    polys = GeometryBasics.Polygon{2,Float32}[]; group = Int[]
+    polys = GeometryBasics.Polygon{2,Float32}[]
+    group = Int[]
     user_pairs = _user_polys(geom)
-    clip isa NoClip && (for (k, p) in user_pairs; push!(polys, p); push!(group, k); end; return (polys, group))
+    clip isa NoClip && (for (k, p) in user_pairs
+        push!(polys, p)
+        push!(group, k)
+    end; return (polys, group))
     for (k, p) in user_pairs
-        pieces = _split_polygon(clip, _poly_rings(p), rctx.projector,
-            rctx.resample_scale; rotated = rctx.rotated)
-        append!(polys, pieces); append!(group, fill(k, length(pieces)))
+        pieces = _split_polygon(
+            clip,
+            _poly_rings(p),
+            rctx.projector,
+            rctx.resample_scale;
+            rotated = rctx.rotated,
+        )
+        append!(polys, pieces)
+        append!(group, fill(k, length(pieces)))
     end
     return (polys, group)
 end
@@ -265,16 +300,20 @@ function Makie.plot!(plot::GeoSeamPoly)
         ninput = geom isa AbstractVector ? length(geom) : 1
         (col isa AbstractVector && length(col) == ninput) ? col[s[2]] : col
     end
-    color_kw = to_value(plot.color) === Makie.automatic ?
-        NamedTuple() : (color = splitcolor,)
-    splitchild = Makie.poly!(plot, splitpolys;
+    color_kw =
+        to_value(plot.color) === Makie.automatic ? NamedTuple() : (color = splitcolor,)
+    splitchild = Makie.poly!(
+        plot,
+        splitpolys;
         color_kw...,
         colormap = plot.colormap,
         colorrange = plot.colorrange,
         strokecolor = plot.strokecolor,
         strokewidth = plot.strokewidth,
         transparency = plot.transparency,
-        transformation = Makie.Transformation(_display_transform_obs(plot.dest, plot.source)),
+        transformation = Makie.Transformation(
+            _display_transform_obs(plot.dest, plot.source),
+        ),
     )
     _link_child_visibility(plot, splitchild)
     return plot
@@ -284,24 +323,32 @@ function Makie.plot!(plot::GeoSeamLines)
     m = plot[1][]
     splitpts = lift(plot[1], plot.dest, plot.source) do m2, d, s
         rctx = ProjectionRenderContext(d, s)
-        split_resample_line(_geo_line_points(m2), rctx.geographic_transform;
-            project = rctx.projector, rotated = rctx.rotated)
+        split_resample_line(
+            _geo_line_points(m2),
+            rctx.geographic_transform;
+            project = rctx.projector,
+            rotated = rctx.rotated,
+        )
     end
     # Per-vertex colours cannot survive adaptive resampling (the vertex count
     # changes); fall back to a single colour. Single colours pass through.
     splitcolor = lift(plot.color) do c
         c isa AbstractVector ? :black : c
     end
-    color_kw = to_value(plot.color) === Makie.automatic ?
-        NamedTuple() : (color = splitcolor,)
-    splitchild = Makie.lines!(plot, splitpts;
+    color_kw =
+        to_value(plot.color) === Makie.automatic ? NamedTuple() : (color = splitcolor,)
+    splitchild = Makie.lines!(
+        plot,
+        splitpts;
         color_kw...,
         colormap = plot.colormap,
         colorrange = plot.colorrange,
         linewidth = plot.linewidth,
         linestyle = plot.linestyle,
         transparency = plot.transparency,
-        transformation = Makie.Transformation(_display_transform_obs(plot.dest, plot.source)),
+        transformation = Makie.Transformation(
+            _display_transform_obs(plot.dest, plot.source),
+        ),
     )
     _link_child_visibility(plot, splitchild)
     return plot
@@ -330,20 +377,26 @@ end
 function Makie.plot!(axis::GeoAxis, plot::Makie.Contour)
     source = pop!(plot.kw, :source, axis.source)
     reset_limits = to_value(pop!(plot.kw, :reset_limits, true))
-    plot.kw[:transformation] = Makie.Transformation(lift(create_transform, axis.dest, source))
+    plot.kw[:transformation] =
+        Makie.Transformation(lift(create_transform, axis.dest, source))
     Makie.plot!(axis.scene, plot)        # contour recipe → Text (labels) + Lines
 
     child = _find_child(plot, Makie.Lines)
     if child !== nothing
         splitpts = lift(child[1], axis.dest, source) do pts, dest, src
             rctx = ProjectionRenderContext(dest, src)
-            split_resample_line(pts, rctx.geographic_transform;
-                project = rctx.projector, rotated = rctx.rotated)
+            split_resample_line(
+                pts,
+                rctx.geographic_transform;
+                project = rctx.projector,
+                rotated = rctx.rotated,
+            )
         end
         col = lift(c -> c isa AbstractVector ? :black : c, child.color)   # per-vertex colour can't survive resampling
         _freeze_hide_child!(child)
         splitchild = Makie.lines!(
-            plot, splitpts;
+            plot,
+            splitpts;
             color = col,
             linewidth = child.linewidth,
             linestyle = child.linestyle,
@@ -373,18 +426,20 @@ function _geo_grid_mesh(dest, source, xs, ys, vals)
     # heatmap passes cell EDGES (n+1) with per-cell data (n); use centres so the vertex grid
     # matches `vals`. surface passes coordinate vectors matching `vals` already.
     nx, ny = size(vals)
-    xs = length(xs) == nx + 1 ? [(xs[i] + xs[i+1]) / 2 for i in 1:nx] : xs
-    ys = length(ys) == ny + 1 ? [(ys[j] + ys[j+1]) / 2 for j in 1:ny] : ys
+    xs = length(xs) == nx + 1 ? [(xs[i] + xs[i+1]) / 2 for i = 1:nx] : xs
+    ys = length(ys) == ny + 1 ? [(ys[j] + ys[j+1]) / 2 for j = 1:ny] : ys
     points = Vector{Point3d}(undef, nx * ny)
     latlon = Vector{Point2d}(undef, nx * ny)
     # Per-vertex values are either scalars (colormapped downstream) or explicit colours
     # (`surface!(...; color = <image>)`); `similar` inherits either eltype, so no Float64(::RGBA).
     cols = similar(vals, nx * ny)
     for (k, ci) in enumerate(CartesianIndices((nx, ny)))
-        lo = Float64(xs[ci[1]]); la = Float64(ys[ci[2]])
+        lo = Float64(xs[ci[1]])
+        la = Float64(ys[ci[2]])
         rotated && (lo = mod(lo - lon0 + 180.0, 360.0) - 180.0)   # canonical rotated frame
         latlon[k] = Point2d(lo, la)
-        points[k] = Makie.to_ndim(Point3d, Makie.apply_transform(tf, Point3d(lo, la, 0.0)), 0.0)
+        points[k] =
+            Makie.to_ndim(Point3d, Makie.apply_transform(tf, Point3d(lo, la, 0.0)), 0.0)
         cols[k] = vals[ci[1], ci[2]]
     end
     rect = GeometryBasics.Tessellation(Rect2f(0, 0, 1, 1), (nx, ny))
@@ -392,8 +447,9 @@ function _geo_grid_mesh(dest, source, xs, ys, vals)
     # clip faces at the discontinuity (subdivides toward the seam); interpolate colour onto the
     # inserted midpoint vertices so the mesh fills to the boundary instead of leaving a sliver.
     pts, _, faces2, parents = _clip_faces(points, latlon, faces, _mesh_projector(tf, 0.0))
-    for k in (nx*ny+1):length(pts)
-        a, b = parents[k]; push!(cols, (cols[a] + cols[b]) / 2)
+    for k = (nx*ny+1):length(pts)
+        a, b = parents[k]
+        push!(cols, (cols[a] + cols[b]) / 2)
     end
     return (GeometryBasics.Mesh(pts, faces2), cols)
 end
@@ -419,7 +475,8 @@ function _geo_grid_plot!(axis, plot, vals_node)
         _geo_grid_mesh(dest, src, xs, ys, vals)
     end
     meshchild = Makie.mesh!(
-        plot, lift(first, mc);
+        plot,
+        lift(first, mc);
         color = lift(last, mc),
         colormap = plot.colormap,
         colorrange = plot.colorrange,
@@ -431,7 +488,8 @@ function _geo_grid_plot!(axis, plot, vals_node)
     )
     _link_child_visibility(plot, meshchild)
     if reset_limits
-        Makie.needs_tight_limits(plot) && (axis.xautolimitmargin = (0.01, 0.01); axis.yautolimitmargin = (0.01, 0.01))
+        Makie.needs_tight_limits(plot) &&
+            (axis.xautolimitmargin = (0.01, 0.01); axis.yautolimitmargin = (0.01, 0.01))
         Makie.is_open_or_any_parent(axis.scene) && Makie.reset_limits!(axis)
     end
     return plot
@@ -444,7 +502,7 @@ function _resample_to_grid(img, nx, ny)
     sx, sy = size(img)
     (sx == nx && sy == ny) && return img
     out = Matrix{eltype(img)}(undef, nx, ny)
-    @inbounds for j in 1:ny, i in 1:nx
+    @inbounds for j = 1:ny, i = 1:nx
         ai = clamp(round(Int, (i - 0.5) * sx / nx + 0.5), 1, sx)
         aj = clamp(round(Int, (j - 0.5) * sy / ny + 0.5), 1, sy)
         out[i, j] = img[ai, aj]

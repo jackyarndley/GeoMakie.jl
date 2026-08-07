@@ -40,12 +40,12 @@ function get_point_xyz(linear_indx::Int, indices, X, Y)
     return Point3d(x, y, 0.0)
 end
 
-function _point_iterator(plot::Union{Image, Heatmap, Surface})
+function _point_iterator(plot::Union{Image,Heatmap,Surface})
     Z = plot[3][]
     X = to_vector(plot[1][], size(Z, 1), Float64)
     Y = to_vector(plot[2][], size(Z, 2), Float64)
     indices = CartesianIndices(Z)
-    return Point3d[get_point_xyz(idx, indices, X, Y, Z) for idx in 1:length(Z)]
+    return Point3d[get_point_xyz(idx, indices, X, Y, Z) for idx = 1:length(Z)]
 end
 
 function _point_iterator(list::AbstractVector)
@@ -85,7 +85,8 @@ function limits_from_transformed_points(positions, scales, rotations, element_bb
     first_rot = attr_broadcast_getindex(rotations, 1)
     full_bbox = Ref(first_rot * (element_bbox * first_scale) + first(positions))
     for (i, pos) in enumerate(positions)
-        scale, rot = attr_broadcast_getindex(scales, i), attr_broadcast_getindex(rotations, i)
+        scale, rot =
+            attr_broadcast_getindex(scales, i), attr_broadcast_getindex(rotations, i)
         transformed_bbox = rot * (element_bbox * scale) + pos
         update_boundingbox!(full_bbox, transformed_bbox)
     end
@@ -108,8 +109,11 @@ end
 # vertices). Required so the selection overlay is drawn in the block scene
 # (pixel space) while the axis scene stays exclusive to user plots.
 function _selection_vertices_notransform(ax_scene, outer, inner)
-    _clamp(p, plow, phigh) = Point2(clamp(p[1], plow[1], phigh[1]), clamp(p[2], plow[2], phigh[2]))
-    proj(point) = Makie.project(ax_scene, point) + Makie.origin(Makie.to_value(Makie.viewport(ax_scene)))
+    _clamp(p, plow, phigh) =
+        Point2(clamp(p[1], plow[1], phigh[1]), clamp(p[2], plow[2], phigh[2]))
+    proj(point) =
+        Makie.project(ax_scene, point) +
+        Makie.origin(Makie.to_value(Makie.viewport(ax_scene)))
     outer = Makie.positivize(outer)
     inner = Makie.positivize(inner)
 
@@ -124,5 +128,14 @@ function _selection_vertices_notransform(ax_scene, outer, inner)
     itr = _clamp(Makie.topright(inner), obl, otr)
     # We plot the selection vertices in blockscene, which is pixelspace, so we need to manually
     # project the points to the space of `ax.scene`
-    return [proj(obl), proj(obr), proj(otr), proj(otl), proj(ibl), proj(ibr), proj(itr), proj(itl)]
+    return [
+        proj(obl),
+        proj(obr),
+        proj(otr),
+        proj(otl),
+        proj(ibl),
+        proj(ibr),
+        proj(itr),
+        proj(itl),
+    ]
 end

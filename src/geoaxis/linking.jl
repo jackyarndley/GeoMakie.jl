@@ -7,7 +7,8 @@ rectangles are never copied between axes.
 =#
 
 function _geo_limits_from_limits(raw)
-    x = nothing; y = nothing
+    x = nothing
+    y = nothing
     if raw isa GeographicLimits
         return raw.x, raw.y
     elseif raw isa Tuple
@@ -29,8 +30,8 @@ _same_source(a::GeoAxis, b::GeoAxis) = to_value(a.source) == to_value(b.source)
 function _is_geographic_source(src)
     s = string(src)
     return occursin(r"\bproj=(longlat|latlong)\b", s) ||
-        occursin(r"EPSG:?4326", s) ||
-        (src isa GeoFormatTypes.EPSG && GeoFormatTypes.val(src) == 4326)
+           occursin(r"EPSG:?4326", s) ||
+           (src isa GeoFormatTypes.EPSG && GeoFormatTypes.val(src) == 4326)
 end
 
 # Linking requires source CRSs that both describe geographic lon/lat. Validate
@@ -38,27 +39,41 @@ end
 # (0,0) back to (≈0, ≈0).
 function _compatible_geographic_source!(from, to)
     from == to && return nothing
-    (_is_geographic_source(from) && _is_geographic_source(to)) ||
-        throw(ArgumentError(
+    (_is_geographic_source(from) && _is_geographic_source(to)) || throw(
+        ArgumentError(
             "Cannot link GeoAxis with incompatible source CRSs ($(from) -> $(to)): " *
-            "linking currently requires geographic (lon/lat) source CRSs."))
+            "linking currently requires geographic (lon/lat) source CRSs.",
+        ),
+    )
     t = try
         create_transform(to, from)
     catch e
-        throw(ArgumentError(
-            "Cannot link GeoAxis with incompatible source CRSs ($(from) -> $(to)): $(sprint(showerror, e))"))
+        throw(
+            ArgumentError(
+                "Cannot link GeoAxis with incompatible source CRSs ($(from) -> $(to)): $(sprint(showerror, e))",
+            ),
+        )
     end
     p = try
         t((0.0, 0.0))
     catch
-        throw(ArgumentError(
-            "Cannot link GeoAxis with incompatible source CRSs ($(from) -> $(to)): transforming (0, 0) failed."))
+        throw(
+            ArgumentError(
+                "Cannot link GeoAxis with incompatible source CRSs ($(from) -> $(to)): transforming (0, 0) failed.",
+            ),
+        )
     end
-    (isfinite(p[1]) && isfinite(p[2]) &&
-        isapprox(p[1], 0.0; atol = 1.0e-3) && isapprox(p[2], 0.0; atol = 1.0e-3)) ||
-        throw(ArgumentError(
+    (
+        isfinite(p[1]) &&
+        isfinite(p[2]) &&
+        isapprox(p[1], 0.0; atol = 1.0e-3) &&
+        isapprox(p[2], 0.0; atol = 1.0e-3)
+    ) || throw(
+        ArgumentError(
             "Cannot link GeoAxis with incompatible source CRSs ($(from) -> $(to)): " *
-            "the transformation does not preserve geographic lon/lat."))
+            "the transformation does not preserve geographic lon/lat.",
+        ),
+    )
     return nothing
 end
 
@@ -74,7 +89,7 @@ function _propagate_geographic_limits!(src::GeoAxis)
         newx = linkx ? x : otherx
         newy = linky ? y : othery
         if (linkx && x !== nothing && !_same_source(src, other)) ||
-                (linky && y !== nothing && !_same_source(src, other))
+           (linky && y !== nothing && !_same_source(src, other))
             _compatible_geographic_source!(to_value(src.source), to_value(other.source))
         end
         newx === nothing && (newx = otherx)
@@ -94,7 +109,8 @@ end
 function _geographic_from_projected(src::GeoAxis)
     inv = src.inv_transform_func[]
     rect = src.targetlimits[]
-    mn = minimum(rect); mx = maximum(rect)
+    mn = minimum(rect)
+    mx = maximum(rect)
     (umin, umax), (vmin, vmax) = iterated_bounds(inv, (mn[1], mx[1]), (mn[2], mx[2]))
     return LongitudeInterval(umin, umax), (vmin, vmax)
 end
@@ -126,9 +142,11 @@ end
 
 function _link_geoaxes!(axes::Vector{GeoAxis}, dir::Symbol)
     isempty(axes) && return
-    for i in 1:length(axes), j in (i + 1):length(axes)
-        a = axes[i]; b = axes[j]
-        _same_source(a, b) || _compatible_geographic_source!(to_value(a.source), to_value(b.source))
+    for i = 1:length(axes), j = (i+1):length(axes)
+        a = axes[i]
+        b = axes[j]
+        _same_source(a, b) ||
+            _compatible_geographic_source!(to_value(a.source), to_value(b.source))
     end
     all_links = Set{GeoAxis}(axes)
     for ax in axes
@@ -162,7 +180,8 @@ Makie.linkxaxes!(axes::Vector{GeoAxis}) = _link_geoaxes!(axes, :x)
 Makie.linkxaxes!(a::GeoAxis, others::GeoAxis...) = _link_geoaxes!([a, others...], :x)
 Makie.linkyaxes!(axes::Vector{GeoAxis}) = _link_geoaxes!(axes, :y)
 Makie.linkyaxes!(a::GeoAxis, others::GeoAxis...) = _link_geoaxes!([a, others...], :y)
-Makie.linkaxes!(axes::Vector{GeoAxis}) = (_link_geoaxes!(axes, :x); _link_geoaxes!(axes, :y))
+Makie.linkaxes!(axes::Vector{GeoAxis}) =
+    (_link_geoaxes!(axes, :x); _link_geoaxes!(axes, :y))
 Makie.linkaxes!(a::GeoAxis, others::GeoAxis...) = Makie.linkaxes!([a, others...])
 
 """
@@ -172,8 +191,7 @@ Remove the given axes from each other's geographic link groups. With no
 `others`, `ax` is unlinked from all axes it is currently linked to.
 """
 function unlinkaxes!(ax::GeoAxis, others::GeoAxis...)
-    targets = isempty(others) ?
-        unique(vcat(ax.xaxislinks, ax.yaxislinks)) : collect(others)
+    targets = isempty(others) ? unique(vcat(ax.xaxislinks, ax.yaxislinks)) : collect(others)
     for a in unique(vcat([ax], targets))
         filter!(x -> !(x in targets || x === ax), a.xaxislinks)
         filter!(y -> !(y in targets || y === ax), a.yaxislinks)

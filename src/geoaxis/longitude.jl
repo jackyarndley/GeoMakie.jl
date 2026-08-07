@@ -23,7 +23,7 @@ LongitudeInterval(350, 20)     # wrapped, width 30
 LongitudeInterval(0, 360)      # full period
 ```
 """
-struct LongitudeInterval{T <: Real}
+struct LongitudeInterval{T<:Real}
     west::T
     east::T      # west + width; may exceed west + period when wrapped
     period::T
@@ -32,7 +32,8 @@ end
 
 function LongitudeInterval(west::Real, east::Real; period::Real = 360)
     p = Float64(period)
-    w = Float64(west); e = Float64(east)
+    w = Float64(west)
+    e = Float64(east)
     width_raw = e - w
     if isapprox(abs(width_raw), p; atol = 1.0e-9)
         w0 = mod(w, p)
@@ -71,8 +72,7 @@ Split a longitude interval into continuous `(west, east)` pieces at the given
 seam longitudes (e.g. `[-180, 180]`). A full-period interval returns one piece.
 """
 function split_at_seam(x::LongitudeInterval, seams)
-    isapprox(width(x), x.period; atol = 1.0e-9) &&
-        return [(x.west, x.west + x.period)]
+    isapprox(width(x), x.period; atol = 1.0e-9) && return [(x.west, x.west + x.period)]
     cuts = Float64[]
     for s in seams
         c = canonicalize(s, x)
@@ -86,7 +86,7 @@ function split_at_seam(x::LongitudeInterval, seams)
         (isempty(unique_cuts) || !isapprox(c, unique_cuts[end]; atol = 1.0e-9)) &&
             push!(unique_cuts, c)
     end
-    pieces = Tuple{Float64, Float64}[]
+    pieces = Tuple{Float64,Float64}[]
     a = x.west
     for c in unique_cuts
         c <= a + 1.0e-9 && continue
@@ -115,28 +115,33 @@ tuple `(south, north)`.
 """
 struct GeographicLimits
     x::LongitudeInterval
-    y::Tuple{Float64, Float64}
+    y::Tuple{Float64,Float64}
 end
 
 # Project a geographic extent through `gp`, splitting wrapped intervals at the
 # projection's seams, and return the union of the projected rectangles.
-function project_geographic_extent(gp::GeoProjection, x::LongitudeInterval,
-        ylo::Real, yhi::Real)
-    ylo = Float64(ylo); yhi = Float64(yhi)
+function project_geographic_extent(
+    gp::GeoProjection,
+    x::LongitudeInterval,
+    ylo::Real,
+    yhi::Real,
+)
+    ylo = Float64(ylo)
+    yhi = Float64(yhi)
     # Avoid zero-height camera rectangles (Makie asserts low <= high and the
     # aspect-adjustment path can invert a degenerate interval).
     if yhi - ylo < 1.0e-9
         ylo -= 0.001
         yhi += 0.001
     end
-    seams = isempty(gp.traits.seam_longitudes) ?
-        Float64[-180.0, 180.0] : gp.traits.seam_longitudes
+    seams =
+        isempty(gp.traits.seam_longitudes) ? Float64[-180.0, 180.0] :
+        gp.traits.seam_longitudes
     rects = Rect2d[]
     for (x0, x1) in split_at_seam(x, seams)
         x1 > x0 || continue
         r = try
-            Makie.apply_transform(gp.forward,
-                Rect2d(Vec2d(x0, ylo), Vec2d(x1 - x0, yhi - ylo)))
+            Makie.apply_transform(gp.forward, Rect2d(Vec2d(x0, ylo), Vec2d(x1 - x0, yhi - ylo)))
         catch
             continue
         end

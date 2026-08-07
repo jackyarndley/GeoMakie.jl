@@ -4,8 +4,8 @@ const _LL = "+proj=longlat +datum=WGS84"
 
 @testset "GeoAxis caching and interaction quality" begin
     @testset "bounded eviction" begin
-        c = G.BoundedDict{Int, Int}(3)
-        for i in 1:10
+        c = G.BoundedDict{Int,Int}(3)
+        for i = 1:10
             G.getcache!(c, i, () -> i)
         end
         @test length(c.data) <= 3
@@ -72,8 +72,18 @@ const _LL = "+proj=longlat +datum=WGS84"
 
     @testset "graticule cache keys use tick values, not counts" begin
         cache = G.BoundedDict{
-            Tuple{Any, Any, NTuple{4, Float64}, Tuple{Vararg{Float64}}, Tuple{Vararg{Float64}}, Float64},
-            Vector{Int}}(4)
+            Tuple{
+                Any,
+                Any,
+                NTuple{4,Float64},
+                Tuple{Vararg{Float64}},
+                Tuple{Vararg{Float64}},
+                Float64,
+            },
+            Vector{Int},
+        }(
+            4,
+        )
         extent = (-180.0, 180.0, -90.0, 90.0)
         key1 = ("+proj=eqearth", _LL, extent, (0.0, 30.0), (0.0, 60.0), 1.0)
         key2 = ("+proj=eqearth", _LL, extent, (10.0, 40.0), (15.0, 45.0), 1.0)

@@ -41,7 +41,10 @@ const G = GeoMakie
         geolimits!(ga, 160, -160, -60, 60)
         Makie.update_state_before_display!(fig)
         fl = ga.finallimits[]
-        @test all(isfinite, (minimum(fl)[1], maximum(fl)[1], minimum(fl)[2], maximum(fl)[2]))
+        @test all(
+            isfinite,
+            (minimum(fl)[1], maximum(fl)[1], minimum(fl)[2], maximum(fl)[2]),
+        )
         @test maximum(fl)[1] - minimum(fl)[1] > 0
 
         geolimits!(ga, 350, 20, -60, 60)
@@ -71,12 +74,14 @@ const G = GeoMakie
 
     @testset "geolimits! on a polar GeoAxis" begin
         fig = Figure()
-        ga = GeoAxis(fig[1, 1];
-            dest = "+proj=stere +lat_0=90 +lon_0=0 +datum=WGS84")
+        ga = GeoAxis(fig[1, 1]; dest = "+proj=stere +lat_0=90 +lon_0=0 +datum=WGS84")
         geolimits!(ga, 160, -160, 60, 90)
         Makie.update_state_before_display!(fig)
         fl = ga.finallimits[]
-        @test all(isfinite, (minimum(fl)[1], maximum(fl)[1], minimum(fl)[2], maximum(fl)[2]))
+        @test all(
+            isfinite,
+            (minimum(fl)[1], maximum(fl)[1], minimum(fl)[2], maximum(fl)[2]),
+        )
         @test minimum(fl)[2] < maximum(fl)[2]
         @test (save(tempname() * ".png", fig); true)
     end

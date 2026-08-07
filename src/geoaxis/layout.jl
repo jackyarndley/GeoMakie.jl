@@ -37,7 +37,9 @@ function add_extent!(e::DecorationExtents, side::Symbol, value::Real)
 end
 
 function same_extents(a::DecorationExtents, b::DecorationExtents; tol::Real = 0.25)
-    return all(abs(getfield(a, s) - getfield(b, s)) <= tol for s in (:left, :right, :bottom, :top))
+    return all(
+        abs(getfield(a, s) - getfield(b, s)) <= tol for s in (:left, :right, :bottom, :top)
+    )
 end
 
 _quantized_rect(r::Rect2{T}) where {T} =
@@ -45,9 +47,9 @@ _quantized_rect(r::Rect2{T}) where {T} =
 
 # Outward normal for a spine point, mirroring `tick_segments`.
 function _spine_outward_normal(p, center::Point2d)
-    n = isfinite(p.intersect_dir[1]) ?
-        normalize(Point2d(-p.intersect_dir[2], p.intersect_dir[1])) :
-        normalize(p.dir)
+    n =
+        isfinite(p.intersect_dir[1]) ?
+        normalize(Point2d(-p.intersect_dir[2], p.intersect_dir[1])) : normalize(p.dir)
     dot(n, p.projected .- center) < 0 && (n = -n)
     return n
 end
@@ -62,18 +64,32 @@ Exact protrusions for a GeoAxis. Titles/subtitles are measured from their actual
 Makie text plots; tick labels, tick marks and axis labels come from
 `decoration_extents` (viewport-independent and already filtered by visibility).
 """
-function compute_protrusions(title, titlesize, titlegap, titlevisible,
-        decoration_extents::DecorationExtents,
-        subtitle, subtitlevisible, subtitlesize, subtitlegap,
-        titlelineheight, subtitlelineheight, subtitlet, titlet)
+function compute_protrusions(
+    title,
+    titlesize,
+    titlegap,
+    titlevisible,
+    decoration_extents::DecorationExtents,
+    subtitle,
+    subtitlevisible,
+    subtitlesize,
+    subtitlegap,
+    titlelineheight,
+    subtitlelineheight,
+    subtitlet,
+    titlet,
+)
     titleheight = Makie.boundingbox(titlet, :data).widths[2] + titlegap
     subtitleheight = Makie.boundingbox(subtitlet, :data).widths[2] + subtitlegap
     titlespace = (!titlevisible || Makie.iswhitespace(title)) ? 0.0f0 : titleheight
-    subtitlespace = (!subtitlevisible || Makie.iswhitespace(subtitle)) ? 0.0f0 : subtitleheight
+    subtitlespace =
+        (!subtitlevisible || Makie.iswhitespace(subtitle)) ? 0.0f0 : subtitleheight
     return GridLayoutBase.RectSides{Float32}(
-        Float32(decoration_extents.left), Float32(decoration_extents.right),
+        Float32(decoration_extents.left),
+        Float32(decoration_extents.right),
         Float32(decoration_extents.bottom),
-        Float32(decoration_extents.top + titlespace + subtitlespace))
+        Float32(decoration_extents.top + titlespace + subtitlespace),
+    )
 end
 
 # Tick-mark segments (pixel space) for one spine side, extended along the outward
@@ -83,17 +99,19 @@ end
 function tick_segments(spines, viewport::Rect2d, ticksize::Real, tickalign::Real)
     segs = Point2d[]
     isempty(spines) && return segs
-    center = Point2d(viewport.origin[1] + viewport.widths[1] / 2,
-        viewport.origin[2] + viewport.widths[2] / 2)
+    center = Point2d(
+        viewport.origin[1] + viewport.widths[1] / 2,
+        viewport.origin[2] + viewport.widths[2] / 2,
+    )
     for p in spines
         # Use the stored boundary/limit-rect edge direction and flip it away from
         # the viewport centre so the visible tick always points outward.
         # Skip projections that are not yet camera-consistent (pre-layout pixel
         # values can be astronomically far from the viewport).
         norm(p.projected .- center) > 1.0e6 && continue
-        n = isfinite(p.intersect_dir[1]) ?
-            normalize(Point2d(-p.intersect_dir[2], p.intersect_dir[1])) :
-            normalize(p.dir)
+        n =
+            isfinite(p.intersect_dir[1]) ?
+            normalize(Point2d(-p.intersect_dir[2], p.intersect_dir[1])) : normalize(p.dir)
         dot(n, p.projected .- center) < 0 && (n = -n)
         push!(segs, p.projected)
         push!(segs, p.projected .+ n .* (ticksize * (1.0 - tickalign)))

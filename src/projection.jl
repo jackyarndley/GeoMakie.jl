@@ -28,7 +28,10 @@ removed if necessary.
 
 =#
 
-function Makie.apply_transform(t::Proj.Transformation, pt::VecTypes{N, T}) where {N, T <: Number}
+function Makie.apply_transform(
+    t::Proj.Transformation,
+    pt::VecTypes{N,T},
+) where {N,T<:Number}
     V = typeof(pt)
     if all(isnan.(pt))
         return V(NaN)
@@ -38,7 +41,7 @@ function Makie.apply_transform(t::Proj.Transformation, pt::VecTypes{N, T}) where
     try
         # TODO: this needs to work on 2d-3d transforms too
         # currently it only works on nd-nd transforms
-        return V(t(Vec{N, T}(pt)))
+        return V(t(Vec{N,T}(pt)))
     catch e
         # catch this annoying edge case
         # if pt[2] ≈ 90.0f0 || pt[2] ≈ -90.0f0
@@ -68,7 +71,7 @@ function Makie.apply_transform(f::Proj.Transformation, r::Rect2{T}) where {T}
     end
 
     try
-        (umin, umax), (vmin, vmax) = iterated_bounds(f, (xmin,xmax), (ymin,ymax))
+        (umin, umax), (vmin, vmax) = iterated_bounds(f, (xmin, xmax), (ymin, ymax))
         return Rect(Vec2(T(umin), T(vmin)), Vec2(T(umax-umin), T(vmax-vmin)))
     catch e
         @show r
@@ -105,14 +108,14 @@ end
 
 # Some minor type piracy
 
-function (transformation::Proj.Transformation)(coord::Point{N, T}) where {N, T <: Real}
+function (transformation::Proj.Transformation)(coord::Point{N,T}) where {N,T<:Real}
     @assert 2 ≤ N ≤ 4
-    return Point{N, T}(transformation(coord.data))
+    return Point{N,T}(transformation(coord.data))
 end
 
-function (transformation::Proj.Transformation)(coord::Vec{N, T}) where {N, T <: Real}
+function (transformation::Proj.Transformation)(coord::Vec{N,T}) where {N,T<:Real}
     @assert 2 ≤ N ≤ 4
-    return Vec{N, T}(transformation(coord.data))
+    return Vec{N,T}(transformation(coord.data))
 end
 
 
@@ -131,7 +134,7 @@ and the output type mirrors the input type - either a Transformation or an
 Observable{Transformation}.
 """
 function create_transform(dest::String, source::String)
-    return Proj.Transformation(source, dest; always_xy=true)
+    return Proj.Transformation(source, dest; always_xy = true)
 end
 
 function create_transform(dest::Observable, source::Observable)
@@ -143,9 +146,13 @@ end
 #      GeoFormatTypes integration      #
 ########################################
 
-const _GFTCRS = Union{GeoFormatTypes.CoordinateReferenceSystemFormat, GeoFormatTypes.WellKnownText{GeoFormatTypes.CRS}}
+const _GFTCRS = Union{
+    GeoFormatTypes.CoordinateReferenceSystemFormat,
+    GeoFormatTypes.WellKnownText{GeoFormatTypes.CRS},
+}
 # Define methods for GeoFormatTypes CRS objects and all possible combinations thereof.
-create_transform(dest::_GFTCRS, source::_GFTCRS) = create_transform(gft2str(dest), gft2str(source))
+create_transform(dest::_GFTCRS, source::_GFTCRS) =
+    create_transform(gft2str(dest), gft2str(source))
 create_transform(dest::String, source::_GFTCRS) = create_transform(dest, gft2str(source))
 create_transform(dest::_GFTCRS, source::String) = create_transform(gft2str(dest), source)
 

@@ -5,11 +5,11 @@ const _LL = "+proj=longlat +datum=WGS84"
 @testset "GeoAxis v2 internals" begin
     @testset "ProjectionTraits" begin
         for (dest, family, cliptype) in [
-                ("+proj=eqearth", :seamed, G.AntimeridianClip),
-                ("+proj=ortho", :azimuthal_or_perspective, G.CircleClip),
-                ("+proj=igh", :interrupted, G.PolygonClip),
-                ("+proj=tpeqd +lat_1=60 +lat_2=65", :continuous, G.NoClip),
-            ]
+            ("+proj=eqearth", :seamed, G.AntimeridianClip),
+            ("+proj=ortho", :azimuthal_or_perspective, G.CircleClip),
+            ("+proj=igh", :interrupted, G.PolygonClip),
+            ("+proj=tpeqd +lat_1=60 +lat_2=65", :continuous, G.NoClip),
+        ]
             gp = G.geoprojection(dest, _LL)
             @test gp.traits.family == family
             @test gp.traits.clip_strategy isa cliptype
@@ -43,11 +43,17 @@ const _LL = "+proj=longlat +datum=WGS84"
 
     @testset "Graticule engine" begin
         gp = G.geoprojection("+proj=eqearth", _LL)
-        curves = G.generate_graticule(gp, [-180.0, 0.0, 180.0], [-60.0, 0.0, 60.0],
-            (-180.0, 180.0, -85.0, 85.0))
+        curves = G.generate_graticule(
+            gp,
+            [-180.0, 0.0, 180.0],
+            [-60.0, 0.0, 60.0],
+            (-180.0, 180.0, -85.0, 85.0),
+        )
         @test length(curves) == 6
-        finitepts = count(p -> isfinite(p[1]) && isfinite(p[2]),
-            reduce(vcat, [c.projected_geometry for c in curves]; init = Point2d[]))
+        finitepts = count(
+            p -> isfinite(p[1]) && isfinite(p[2]),
+            reduce(vcat, [c.projected_geometry for c in curves]; init = Point2d[]),
+        )
         @test finitepts > 0
         boundary = G.boundary_points(gp)
         ix = G.graticule_boundary_intersections(curves[1], boundary)
@@ -57,20 +63,41 @@ const _LL = "+proj=longlat +datum=WGS84"
 
     @testset "multi-component boundary intersections are independent" begin
         comps = [
-            Point2d[Point2d(0, 0), Point2d(100, 0), Point2d(100, 100),
-                Point2d(0, 100), Point2d(0, 0)],
-            Point2d[Point2d(300, 0), Point2d(400, 0), Point2d(400, 100),
-                Point2d(300, 100), Point2d(300, 0)],
+            Point2d[
+                Point2d(0, 0),
+                Point2d(100, 0),
+                Point2d(100, 100),
+                Point2d(0, 100),
+                Point2d(0, 0),
+            ],
+            Point2d[
+                Point2d(300, 0),
+                Point2d(400, 0),
+                Point2d(400, 100),
+                Point2d(300, 100),
+                Point2d(300, 0),
+            ],
         ]
         # Curve entirely inside the gap between the two lobes: no intersections.
-        gap = G.GraticuleCurve(0.0, :meridian,
+        gap = G.GraticuleCurve(
+            0.0,
+            :meridian,
             Point2d[Point2d(0, -10), Point2d(0, 110)],
-            Point2d[Point2d(200, -10), Point2d(200, 110)])
+            Point2d[Point2d(200, -10), Point2d(200, 110)],
+        )
         @test isempty(G.graticule_boundary_intersections(gap, comps))
         # Curve crossing both lobes reports each true component index.
-        cross = G.GraticuleCurve(0.0, :meridian,
+        cross = G.GraticuleCurve(
+            0.0,
+            :meridian,
             Point2d[Point2d(0, -10), Point2d(0, 110)],
-            Point2d[Point2d(50, -10), Point2d(50, 110), Point2d(350, -10), Point2d(350, 110)])
+            Point2d[
+                Point2d(50, -10),
+                Point2d(50, 110),
+                Point2d(350, -10),
+                Point2d(350, 110),
+            ],
+        )
         ix = G.graticule_boundary_intersections(cross, comps)
         @test !isempty(ix)
         @test all(t -> t[2] in (1, 2), ix)
@@ -99,29 +126,39 @@ const _LL = "+proj=longlat +datum=WGS84"
         @test pairs[3][2] == p2
         # GeoJSON FeatureCollections traverse through GI traits, one user
         # element per feature.
-        fc = G.GeoJSON.read("""{"type":"FeatureCollection","features":[
-          {"type":"Feature","properties":{},"geometry":{"type":"Polygon",
-            "coordinates":[[[0,0],[10,0],[10,10],[0,0]]]}},
-          {"type":"Feature","properties":{},"geometry":{"type":"MultiPolygon",
-            "coordinates":[[[[20,0],[30,0],[30,10],[20,0]]],[[[40,0],[50,0],[50,10],[40,0]]]]}}
-        ]}""")
+        fc = G.GeoJSON.read(
+            """{"type":"FeatureCollection","features":[
+  {"type":"Feature","properties":{},"geometry":{"type":"Polygon",
+    "coordinates":[[[0,0],[10,0],[10,10],[0,0]]]}},
+  {"type":"Feature","properties":{},"geometry":{"type":"MultiPolygon",
+    "coordinates":[[[[20,0],[30,0],[30,10],[20,0]]],[[[40,0],[50,0],[50,10],[40,0]]]]}}
+]}""",
+        )
         @test length(G._collect_polys(fc)) == 3
         @test [k for (k, _) in G._user_polys(fc)] == [1, 2, 2]
     end
 
     @testset "curve tangents never span NaN separators" begin
         pts = Point2d[
-            Point2d(0, 0), Point2d(10, 0), Point2d(20, 0),
+            Point2d(0, 0),
+            Point2d(10, 0),
+            Point2d(20, 0),
             Point2d(NaN, NaN),
-            Point2d(100, 0), Point2d(110, 0), Point2d(120, 0),
+            Point2d(100, 0),
+            Point2d(110, 0),
+            Point2d(120, 0),
         ]
         @test G._curve_tangent_at(pts, Point2d(5, 0)) ≈ Point2d(1, 0)
         @test G._curve_tangent_at(pts, Point2d(105, 0)) ≈ Point2d(1, 0)
         # Reverse the second piece's direction: the tangent must stay local.
         pts2 = Point2d[
-            Point2d(0, 0), Point2d(10, 0), Point2d(20, 0),
+            Point2d(0, 0),
+            Point2d(10, 0),
+            Point2d(20, 0),
             Point2d(NaN, NaN),
-            Point2d(120, 0), Point2d(110, 0), Point2d(100, 0),
+            Point2d(120, 0),
+            Point2d(110, 0),
+            Point2d(100, 0),
         ]
         @test G._curve_tangent_at(pts2, Point2d(110, 0)) ≈ Point2d(-1, 0)
         @test G._curve_tangent_at(pts2, Point2d(10, 0)) ≈ Point2d(1, 0)
@@ -129,21 +166,43 @@ const _LL = "+proj=longlat +datum=WGS84"
 
     @testset "labels keep true boundary component identity" begin
         comps = [
-            Point2d[Point2d(0, 0), Point2d(100, 0), Point2d(100, 100),
-                Point2d(0, 100), Point2d(0, 0)],
-            Point2d[Point2d(300, 0), Point2d(400, 0), Point2d(400, 100),
-                Point2d(300, 100), Point2d(300, 0)],
+            Point2d[
+                Point2d(0, 0),
+                Point2d(100, 0),
+                Point2d(100, 100),
+                Point2d(0, 100),
+                Point2d(0, 0),
+            ],
+            Point2d[
+                Point2d(300, 0),
+                Point2d(400, 0),
+                Point2d(400, 100),
+                Point2d(300, 100),
+                Point2d(300, 0),
+            ],
         ]
         curves = G.GraticuleCurve[
-            G.GraticuleCurve(0.0, :meridian,
+            G.GraticuleCurve(
+                0.0,
+                :meridian,
                 Point2d[Point2d(0, -10), Point2d(0, 110)],
-                Point2d[Point2d(50, -10), Point2d(50, 110)]),
-            G.GraticuleCurve(30.0, :meridian,
+                Point2d[Point2d(50, -10), Point2d(50, 110)],
+            ),
+            G.GraticuleCurve(
+                30.0,
+                :meridian,
                 Point2d[Point2d(30, -10), Point2d(30, 110)],
-                Point2d[Point2d(350, -10), Point2d(350, 110)]),
+                Point2d[Point2d(350, -10), Point2d(350, 110)],
+            ),
         ]
-        cands = G.place_graticule_labels(curves, [0.0, 30.0], :meridian, comps;
-            side = :bottom, fonts = nothing)
+        cands = G.place_graticule_labels(
+            curves,
+            [0.0, 30.0],
+            :meridian,
+            comps;
+            side = :bottom,
+            fonts = nothing,
+        )
         @test length(cands) == 2
         @test sort(collect(c.boundary_component for c in cands)) == [1, 2]
         @test all(c -> c.position_px[2] < 0, cands)
@@ -153,26 +212,45 @@ const _LL = "+proj=longlat +datum=WGS84"
     @testset "Boundary-aware labels" begin
         # A simple pixel rectangle: labels must sit outside the boundary and use
         # the outward normal, alignment, and measured text boxes.
-        boundary = Point2d[Point2d(0, 0), Point2d(500, 0), Point2d(500, 500),
-            Point2d(0, 500), Point2d(0, 0)]
-        curves = G.GraticuleCurve[
-            G.GraticuleCurve(0.0, :meridian,
-                Point2d[Point2d(0, -85), Point2d(0, 85)],
-                Point2d[Point2d(100, -10), Point2d(100, 510)]),
-            G.GraticuleCurve(30.0, :meridian,
-                Point2d[Point2d(30, -85), Point2d(30, 85)],
-                Point2d[Point2d(300, -10), Point2d(300, 510)]),
+        boundary = Point2d[
+            Point2d(0, 0),
+            Point2d(500, 0),
+            Point2d(500, 500),
+            Point2d(0, 500),
+            Point2d(0, 0),
         ]
-        cands = G.place_graticule_labels(curves, [0.0, 30.0], :meridian, boundary;
-            side = :bottom, fonts = nothing)
+        curves = G.GraticuleCurve[
+            G.GraticuleCurve(
+                0.0,
+                :meridian,
+                Point2d[Point2d(0, -85), Point2d(0, 85)],
+                Point2d[Point2d(100, -10), Point2d(100, 510)],
+            ),
+            G.GraticuleCurve(
+                30.0,
+                :meridian,
+                Point2d[Point2d(30, -85), Point2d(30, 85)],
+                Point2d[Point2d(300, -10), Point2d(300, 510)],
+            ),
+        ]
+        cands = G.place_graticule_labels(
+            curves,
+            [0.0, 30.0],
+            :meridian,
+            boundary;
+            side = :bottom,
+            fonts = nothing,
+        )
         @test length(cands) == 2
         @test all(c -> c.position_px[2] < 0, cands)
         @test all(c -> c.alignment[2] == :top, cands)
         # no overlap between the two labels
         a, b = cands
-        xoverlap = min(a.bbox_px.origin[1] + a.bbox_px.widths[1],
-                b.bbox_px.origin[1] + b.bbox_px.widths[1]) -
-            max(a.bbox_px.origin[1], b.bbox_px.origin[1])
+        xoverlap =
+            min(
+                a.bbox_px.origin[1] + a.bbox_px.widths[1],
+                b.bbox_px.origin[1] + b.bbox_px.widths[1],
+            ) - max(a.bbox_px.origin[1], b.bbox_px.origin[1])
         @test xoverlap <= 2
     end
 
@@ -192,7 +270,8 @@ const _LL = "+proj=longlat +datum=WGS84"
         @test all(diff(spaced) .≈ 30.0)
         vals = Makie.get_tickvalues(G.GeoTicks(; values = -180:30:180), -90.0, 90.0)
         @test vals == collect(-90.0:30.0:90.0)
-        @test Makie.get_tickvalues(G.GeoTicks(; values = -180:30:180), -180.0, 180.0) isa AbstractVector
+        @test Makie.get_tickvalues(G.GeoTicks(; values = -180:30:180), -180.0, 180.0) isa
+              AbstractVector
     end
 
     @testset "Layout convergence" begin

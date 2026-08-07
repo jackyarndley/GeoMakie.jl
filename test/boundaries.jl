@@ -4,12 +4,17 @@ const _LL = "+proj=longlat +datum=WGS84"
 
 @testset "Projection boundary strategies" begin
     @testset "strategy selection" begin
-        @test G.boundary_strategy(G.geoprojection("+proj=eqearth", _LL)) isa G.AnalyticBoundary
-        @test G.boundary_strategy(G.geoprojection("+proj=ortho", _LL)) isa G.CircularBoundary
-        @test G.boundary_strategy(G.geoprojection("+proj=igh", _LL)) isa G.SphericalPolygonBoundary
-        @test G.boundary_strategy(G.geoprojection("+proj=guyou", _LL)) isa G.AdaptiveBoundary
-        @test G.boundary_strategy(G.geoprojection("+proj=tpeqd +lat_1=60 +lat_2=65", _LL)) isa
-            G.AdaptiveBoundary
+        @test G.boundary_strategy(G.geoprojection("+proj=eqearth", _LL)) isa
+              G.AnalyticBoundary
+        @test G.boundary_strategy(G.geoprojection("+proj=ortho", _LL)) isa
+              G.CircularBoundary
+        @test G.boundary_strategy(G.geoprojection("+proj=igh", _LL)) isa
+              G.SphericalPolygonBoundary
+        @test G.boundary_strategy(G.geoprojection("+proj=guyou", _LL)) isa
+              G.AdaptiveBoundary
+        @test G.boundary_strategy(
+            G.geoprojection("+proj=tpeqd +lat_1=60 +lat_2=65", _LL),
+        ) isa G.AdaptiveBoundary
     end
 
     @testset "adaptive fallback for projections without analytic boundaries" begin

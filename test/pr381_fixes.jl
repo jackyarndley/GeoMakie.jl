@@ -16,7 +16,9 @@
     end
 
     @testset "seam-aware poly! covers single and multi polygons" begin
-        single = GeometryBasics.Polygon(Point2d[Point2d(0, 0), Point2d(10, 0), Point2d(10, 10), Point2d(0, 10)])
+        single = GeometryBasics.Polygon(
+            Point2d[Point2d(0, 0), Point2d(10, 0), Point2d(10, 10), Point2d(0, 10)],
+        )
         multi = GeometryBasics.MultiPolygon([single])
         fig = Figure()
         ga = GeoAxis(fig[1, 1]; dest = "+proj=moll")
@@ -30,8 +32,8 @@
         # 49 user MultiPolygons (two with two components) flatten to 51 pieces;
         # the 49 per-row colours must be replicated onto the pieces so
         # CairoMakie can render the split child.
-        mps = GeometryBasics.MultiPolygon{2, Float32}[]
-        for i in 1:49
+        mps = GeometryBasics.MultiPolygon{2,Float32}[]
+        for i = 1:49
             p1 = GeometryBasics.Polygon(Point2f[(i - 1, 0), (i, 0), (i, 1), (i - 1, 1)])
             if i in (25, 26)
                 p2 = GeometryBasics.Polygon(Point2f[(i - 1, 2), (i, 2), (i, 3), (i - 1, 3)])

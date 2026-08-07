@@ -10,11 +10,9 @@ else
     using CairoMakie
 end
 
-Makie.set_theme!(Theme(
-    Heatmap = (rasterize = 5,),
-    Image   = (rasterize = 5,),
-    Surface = (rasterize = 5,),
-))
+Makie.set_theme!(
+    Theme(Heatmap = (rasterize = 5,), Image = (rasterize = 5,), Surface = (rasterize = 5,)),
+)
 @testset "GeoMakie" begin
     @testset "Basics" include("basics.jl")
     @testset "SphereClip" include("sphere_clip.jl")

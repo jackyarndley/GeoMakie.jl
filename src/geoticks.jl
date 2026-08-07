@@ -30,11 +30,11 @@ The tickfinder has four regimes:
 """
 Base.@kwdef struct GeoTicks
     "Approximate number of ticks to keep spaced, with a minimum spacing of 1."
-    count::Union{Nothing, Int} = nothing
+    count::Union{Nothing,Int} = nothing
     "Fixed spacing between ticks, in degrees."
-    spacing::Union{Nothing, Real} = nothing
+    spacing::Union{Nothing,Real} = nothing
     "Explicit tick values."
-    values::Union{Nothing, AbstractVector{<: Real}} = nothing
+    values::Union{Nothing,AbstractVector{<: Real}} = nothing
     "The minimum distance between ticks, before the `alternate_tickfinder` is used."
     threshold::Float64 = 3
     "The tick finder to use if the range is not large enough to keep the `multiple` ticks."
@@ -69,9 +69,15 @@ function _geoticks_values(ticks::GeoTicks, vmin, vmax)
         return vals
     end
     count = ticks.count === nothing ? 12 : ticks.count
-    return geoticks(-180.0, 180.0, lo, hi;
-        multiple = count, threshold = ticks.threshold,
-        alternate_tickfinder = ticks.alternate_tickfinder)
+    return geoticks(
+        -180.0,
+        180.0,
+        lo,
+        hi;
+        multiple = count,
+        threshold = ticks.threshold,
+        alternate_tickfinder = ticks.alternate_tickfinder,
+    )
 end
 
 # Below is the actual implementation for the struct described above:
@@ -95,18 +101,26 @@ The tickfinder has three regimes, defined by the distance between the minimum an
 - ``!(\\operatorname{isfinite}(vmin) && \\operatorname{isfinite}(vmax))``: `-dvmin:30:dvmax`
 - All other cases: Find ticks in the range `mini:step:maxi`, where `step` is the closest multiple of `(maxi-mini)/multiple` to `dmaxi`.
 """
-function geoticks(dmini, dmaxi, mini, maxi; multiple = 12, threshold = 3, alternate_tickfinder = Makie.WilkinsonTicks(5; k_min = 3))
+function geoticks(
+    dmini,
+    dmaxi,
+    mini,
+    maxi;
+    multiple = 12,
+    threshold = 3,
+    alternate_tickfinder = Makie.WilkinsonTicks(5; k_min = 3),
+)
     if isfinite(mini) && isfinite(maxi)
-            # If the range is sufficiently small, use WilkinsonTicks    
-            if abs(maxi - mini) < threshold
-                return Makie.get_tickvalues(alternate_tickfinder, identity, mini, maxi)
-            else # there's enough space to use a kind of multiples tick
-                mini, maxi = min(maxi, mini), max(maxi, mini)
-                # Find the closest multiple of `(maxi-mini)/multiple` to `dmaxi`.
-                # This is the step size for the ticks.
-                step = max(1, closest_multiple((maxi - mini) / multiple, dmaxi))
-                return dmini:step:dmaxi
-            end
+        # If the range is sufficiently small, use WilkinsonTicks    
+        if abs(maxi - mini) < threshold
+            return Makie.get_tickvalues(alternate_tickfinder, identity, mini, maxi)
+        else # there's enough space to use a kind of multiples tick
+            mini, maxi = min(maxi, mini), max(maxi, mini)
+            # Find the closest multiple of `(maxi-mini)/multiple` to `dmaxi`.
+            # This is the step size for the ticks.
+            step = max(1, closest_multiple((maxi - mini) / multiple, dmaxi))
+            return dmini:step:dmaxi
+        end
     else # if the range is infinite, we need to place ticks at all lon/lat combinations.
         return dmini:30:dmaxi
     end

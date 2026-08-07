@@ -46,7 +46,7 @@ const Mesh = GeometryBasics.Mesh
 const Text = Makie.Text
 
 # Quick fix for GeometryBasics
-Base.convert(::Type{Rect{N, Float64}}, x::Rect{N}) where N = Rect{N, Float64}(x)
+Base.convert(::Type{Rect{N,Float64}}, x::Rect{N}) where {N} = Rect{N,Float64}(x)
 
 include("makie_piracy.jl")
 include("geojson.jl") # GeoJSON/GeoInterface support
