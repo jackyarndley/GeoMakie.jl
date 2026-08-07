@@ -2,17 +2,37 @@
 # GeoAxis
 =#
 
-const Rect2d = Rect2{Float64}
+# Do lon = -180° and lon = +180° project to the same curve under `gridproj`? They are one physical
+# meridian: pseudocylindrical/interrupted frames place them on opposite map edges (distinct), while
+# oblique/azimuthal frames drawn with the full transform collapse them onto each other (the forward
+# is 360°-periodic). Sampled at the first visible latitude where both project finite.
+function _antimeridian_coincides(gridproj, ylo, yhi)
+    for φ in (35.0, -35.0, 55.0, -55.0, 10.0)
+        (φ < ylo || φ > yhi) && continue
+        a = gridproj(-180.0, φ)
+        b = gridproj(180.0, φ)
+        (all(isfinite, a) && all(isfinite, b)) || continue
+        return hypot(a[1] - b[1], a[2] - b[2]) < 1.0    # coincident to < 1 m ⇒ the same curve
+    end
+    return false
+end
 
 Makie.@Block GeoAxis <: Makie.AbstractAxis begin
     scene::Scene
     targetlimits::Observable{Rect2d}
     finallimits::Observable{Rect2d}
+    xaxislinks::Vector{GeoAxis}
+    yaxislinks::Vector{GeoAxis}
+    block_limit_linking::Ref{Bool}
+    suppress_projected_propagation::Ref{Bool}
+    linked_geographic_limits::Observable{Union{Nothing,GeographicLimits}}
+    cache::AxisCache
+    interaction_active::Observable{Bool}
     mouseeventhandle::Makie.MouseEventHandle
     scrollevents::Observable{Makie.ScrollEvent}
     keysevents::Observable{Makie.KeysEvent}
-    interactions::Dict{Symbol, Tuple{Bool, Any}}
-    elements::Dict{Symbol, Any}
+    interactions::Dict{Symbol,Tuple{Bool,Any}}
+    elements::Dict{Symbol,Any}
     transform_func::Observable{Any}
     inv_transform_func::Observable{Any}
     @attributes begin
@@ -63,9 +83,9 @@ Makie.@Block GeoAxis <: Makie.AbstractAxis begin
         "The font family of the title."
         titlefont = :bold
         "The title's font size."
-        titlesize::Float64 = @inherit(:fontsize, 16f0)
+        titlesize::Float64 = @inherit(:fontsize, 16.0f0)
         "The gap between axis and title."
-        titlegap::Float64 = 4f0
+        titlegap::Float64 = 4.0f0
         "Controls if the title is visible."
         titlevisible::Bool = true
         "The horizontal alignment of the title."
@@ -79,7 +99,7 @@ Makie.@Block GeoAxis <: Makie.AbstractAxis begin
         "The font family of the subtitle."
         subtitlefont = :regular
         "The subtitle's font size."
-        subtitlesize::Float64 = @inherit(:fontsize, 16f0)
+        subtitlesize::Float64 = @inherit(:fontsize, 16.0f0)
         "The gap between subtitle and title."
         subtitlegap::Float64 = 0
         "Controls if the subtitle is visible."
@@ -103,17 +123,17 @@ Makie.@Block GeoAxis <: Makie.AbstractAxis begin
         "The color of the ylabel."
         ylabelcolor::RGBAf = @inherit(:textcolor, :black)
         "The font size of the xlabel."
-        xlabelsize::Float64 = @inherit(:fontsize, 16f0)
+        xlabelsize::Float64 = @inherit(:fontsize, 16.0f0)
         "The font size of the ylabel."
-        ylabelsize::Float64 = @inherit(:fontsize, 16f0)
+        ylabelsize::Float64 = @inherit(:fontsize, 16.0f0)
         "Controls if the xlabel is visible."
         xlabelvisible::Bool = true
         "Controls if the ylabel is visible."
         ylabelvisible::Bool = true
         "The padding between the xlabel and the ticks or axis."
-        xlabelpadding::Float64 = 3f0
+        xlabelpadding::Float64 = 3.0f0
         "The padding between the ylabel and the ticks or axis."
-        ylabelpadding::Float64 = 5f0 # xlabels usually have some more visual padding because of ascenders, which are larger than the hadvance gaps of ylabels
+        ylabelpadding::Float64 = 5.0f0 # xlabels usually have some more visual padding because of ascenders, which are larger than the hadvance gaps of ylabels
         "The xlabel rotation in radians."
         xlabelrotation = Makie.automatic
         "The ylabel rotation in radians."
@@ -137,45 +157,49 @@ Makie.@Block GeoAxis <: Makie.AbstractAxis begin
         "The color of yticklabels."
         yticklabelcolor::RGBAf = @inherit(:textcolor, :black)
         "The font size of the xticklabels."
-        xticklabelsize::Float64 = @inherit(:fontsize, 16f0)
+        xticklabelsize::Float64 = @inherit(:fontsize, 16.0f0)
         "The font size of the yticklabels."
-        yticklabelsize::Float64 = @inherit(:fontsize, 16f0)
+        yticklabelsize::Float64 = @inherit(:fontsize, 16.0f0)
         "Controls if the xticklabels are visible."
         xticklabelsvisible::Bool = true
         "Controls if the yticklabels are visible."
         yticklabelsvisible::Bool = true
         "The space reserved for the xticklabels."
-        xticklabelspace::Union{Makie.Automatic, Float64} = Makie.automatic
+        xticklabelspace::Union{Makie.Automatic,Float64} = Makie.automatic
         "The space reserved for the yticklabels."
-        yticklabelspace::Union{Makie.Automatic, Float64} = Makie.automatic
+        yticklabelspace::Union{Makie.Automatic,Float64} = Makie.automatic
         "The space between xticks and xticklabels."
-        xticklabelpad::Float64 = 5f0
+        xticklabelpad::Float64 = 5.0f0
         "The space between yticks and yticklabels."
-        yticklabelpad::Float64 = 5f0
+        yticklabelpad::Float64 = 5.0f0
         "The counterclockwise rotation of the xticklabels in radians."
-        xticklabelrotation::Float64 = 0f0
+        xticklabelrotation::Float64 = 0.0f0
         "The counterclockwise rotation of the yticklabels in radians."
-        yticklabelrotation::Float64 = 0f0
+        yticklabelrotation::Float64 = 0.0f0
         "The horizontal and vertical alignment of the xticklabels."
-        xticklabelalign::Union{Makie.Automatic, Tuple{Symbol, Symbol}} = Makie.automatic
+        xticklabelalign::Union{Makie.Automatic,Tuple{Symbol,Symbol}} = Makie.automatic
         "The horizontal and vertical alignment of the yticklabels."
-        yticklabelalign::Union{Makie.Automatic, Tuple{Symbol, Symbol}} = Makie.automatic
+        yticklabelalign::Union{Makie.Automatic,Tuple{Symbol,Symbol}} = Makie.automatic
+        "Label placement for longitude (x) tick labels: `:outside`, `:inline` or `:auto`."
+        xticklabelplacement::Symbol = :outside
+        "Label placement for latitude (y) tick labels: `:outside`, `:inline` or `:auto`."
+        yticklabelplacement::Symbol = :outside
         "The size of the xtick marks."
-        xticksize::Float64 = 6f0
+        xticksize::Float64 = 6.0f0
         "The size of the ytick marks."
-        yticksize::Float64 = 6f0
+        yticksize::Float64 = 6.0f0
         "Controls if the xtick marks are visible."
         xticksvisible::Bool = true
         "Controls if the ytick marks are visible."
         yticksvisible::Bool = true
         "The alignment of the xtick marks relative to the axis spine (0 = out, 1 = in)."
-        xtickalign::Float64 = 0f0
+        xtickalign::Float64 = 0.0f0
         "The alignment of the ytick marks relative to the axis spine (0 = out, 1 = in)."
-        ytickalign::Float64 = 0f0
+        ytickalign::Float64 = 0.0f0
         "The width of the xtick marks."
-        xtickwidth::Float64 = 1f0
+        xtickwidth::Float64 = 1.0f0
         "The width of the ytick marks."
-        ytickwidth::Float64 = 1f0
+        ytickwidth::Float64 = 1.0f0
         "The color of the xtick marks."
         xtickcolor::RGBAf = RGBf(0, 0, 0)
         "The color of the ytick marks."
@@ -187,13 +211,13 @@ Makie.@Block GeoAxis <: Makie.AbstractAxis begin
         "Controls if the y grid lines are visible."
         ygridvisible::Bool = true
         "The width of the x grid lines."
-        xgridwidth::Float64 = 1f0
+        xgridwidth::Float64 = 1.0f0
         "The width of the y grid lines."
-        ygridwidth::Float64 = 1f0
+        ygridwidth::Float64 = 1.0f0
         "The color of the x grid lines."
-        xgridcolor::RGBAf = RGBAf(0, 0, 0, 0.5)
+        xgridcolor::RGBAf = RGBAf(0, 0, 0, 0.12)   # match Makie's default Axis gridline
         "The color of the y grid lines."
-        ygridcolor::RGBAf = RGBAf(0.0, 0, 0, 0.5)
+        ygridcolor::RGBAf = RGBAf(0.0, 0, 0, 0.12)
         "The linestyle of the x grid lines."
         xgridstyle = nothing
         "The linestyle of the y grid lines."
@@ -201,11 +225,11 @@ Makie.@Block GeoAxis <: Makie.AbstractAxis begin
         "Controls if minor ticks on the x axis are visible"
         xminorticksvisible::Bool = false
         "The alignment of x minor ticks on the axis spine"
-        xminortickalign::Float64 = 0f0
+        xminortickalign::Float64 = 0.0f0
         "The tick size of x minor ticks"
-        xminorticksize::Float64 = 4f0
+        xminorticksize::Float64 = 4.0f0
         "The tick width of x minor ticks"
-        xminortickwidth::Float64 = 1f0
+        xminortickwidth::Float64 = 1.0f0
         "The tick color of x minor ticks"
         xminortickcolor::RGBAf = :black
         "The tick locator for the x minor ticks"
@@ -213,11 +237,11 @@ Makie.@Block GeoAxis <: Makie.AbstractAxis begin
         "Controls if minor ticks on the y axis are visible"
         yminorticksvisible::Bool = false
         "The alignment of y minor ticks on the axis spine"
-        yminortickalign::Float64 = 0f0
+        yminortickalign::Float64 = 0.0f0
         "The tick size of y minor ticks"
-        yminorticksize::Float64 = 4f0
+        yminorticksize::Float64 = 4.0f0
         "The tick width of y minor ticks"
-        yminortickwidth::Float64 = 1f0
+        yminortickwidth::Float64 = 1.0f0
         "The tick color of y minor ticks"
         yminortickcolor::RGBAf = :black
         "The tick locator for the y minor ticks"
@@ -227,9 +251,9 @@ Makie.@Block GeoAxis <: Makie.AbstractAxis begin
         "Controls if the y minor grid lines are visible."
         yminorgridvisible::Bool = false
         "The width of the x minor grid lines."
-        xminorgridwidth::Float64 = 1f0
+        xminorgridwidth::Float64 = 1.0f0
         "The width of the y minor grid lines."
-        yminorgridwidth::Float64 = 1f0
+        yminorgridwidth::Float64 = 1.0f0
         "The color of the x minor grid lines."
         xminorgridcolor::RGBAf = RGBAf(0, 0, 0, 0.05)
         "The color of the y minor grid lines."
@@ -238,11 +262,12 @@ Makie.@Block GeoAxis <: Makie.AbstractAxis begin
         xminorgridstyle = nothing
         "The linestyle of the y minor grid lines."
         yminorgridstyle = nothing
-        # "Controls if the axis spine is visible."
-        # spinevisible::Bool = true
-        # "The color of the axis spine."
-        # spinecolor::RGBAf = :black
-        # spinetype::Symbol = :geospine
+        "Controls if the projection-boundary spine is visible."
+        spinevisible::Bool = true
+        "The width of the projection-boundary spine."
+        spinewidth::Float64 = 1.0f0
+        "The color of the projection-boundary spine."
+        spinecolor::RGBAf = RGBAf(0, 0, 0, 1)   # match Makie's default Axis spine
         "The button for panning."
         panbutton::Makie.Mouse.Button = Makie.Mouse.right
         "The key for limiting panning to the x direction."
@@ -278,7 +303,10 @@ Makie.transform_func(ax::GeoAxis) = ax.transform_func[]
 
 # Spines
 
-const SpinePoint = NamedTuple{(:input, :projected, :dir, :intersect_dir),Tuple{Point2d,Point2d,Point2d,Point2d}}
+const SpinePoint = NamedTuple{
+    (:input, :projected, :dir, :intersect_dir),
+    Tuple{Point2d,Point2d,Point2d,Point2d},
+}
 
 struct Spines
     top::Vector{SpinePoint}
@@ -315,7 +343,7 @@ function interset_rect(rect::Rect2, line_start::Point2, line_end::Point2)
     return nothing, nothing
 end
 
-function valid_line_in_limits(trans, trans_rev, rect, point_start, point_stop, n=100)
+function valid_line_in_limits(trans, trans_rev, rect, point_start, point_stop, n = 100)
     xrange = LinRange(point_start[1], point_stop[1], n)
     yrange = LinRange(point_start[2], point_stop[2], n)
     lines = Vector{Point2d}[]
@@ -324,7 +352,7 @@ function valid_line_in_limits(trans, trans_rev, rect, point_start, point_stop, n
     # With non linear transforms, we need to check points inbetween for intersections
     # So we transform all points first and filter out non finite results
     was_finite = false
-    for i in 1:n
+    for i = 1:n
         point = Point2d(xrange[i], yrange[i])
         point_t = Makie.apply_transform(trans, point)
         if isfinite(point_t)
@@ -347,7 +375,8 @@ function valid_line_in_limits(trans, trans_rev, rect, point_start, point_stop, n
     for (points, points_t) in zip(lines, lines_t)
         was_inside = false
 
-        for (a, b, a_t, b_t) in zip(points[1:end-1], points[2:end], points_t[1:end-1], points_t[2:end])
+        for (a, b, a_t, b_t) in
+            zip(points[1:(end-1)], points[2:end], points_t[1:(end-1)], points_t[2:end])
             a_in = a_t in rect
             b_in = b_t in rect
             if !was_inside && (a_in || b_in)
@@ -400,8 +429,16 @@ function valid_line_in_limits(trans, trans_rev, rect, point_start, point_stop, n
     return lines_inside, lines_inside_t, intersections
 end
 
-function add_to_lines!(result, valid_line, line_transformed, intersections, spine_start, spine_end, dim)
-    idx = sortperm(valid_line, by=x -> x[dim == 1 ? 2 : 1])
+function add_to_lines!(
+    result,
+    valid_line,
+    line_transformed,
+    intersections,
+    spine_start,
+    spine_end,
+    dim,
+)
+    idx = sortperm(valid_line, by = x -> x[dim == 1 ? 2 : 1])
     line_transformed = line_transformed[idx]
     valid_line = valid_line[idx]
 
@@ -419,7 +456,15 @@ function add_to_lines!(result, valid_line, line_transformed, intersections, spin
         else
             intersect_dir = Point2d(NaN)
         end
-        push!(spine_start, (input=valid_line[1], projected=v1_t, dir=dir, intersect_dir=intersect_dir))
+        push!(
+            spine_start,
+            (
+                input = valid_line[1],
+                projected = v1_t,
+                dir = dir,
+                intersect_dir = intersect_dir,
+            ),
+        )
     end
 
     if !isnothing(spine_end)
@@ -430,11 +475,29 @@ function add_to_lines!(result, valid_line, line_transformed, intersections, spin
         else
             intersect_dir = Point2d(NaN)
         end
-        push!(spine_end, (input=valid_line[end], projected=s_1_t, dir=dir, intersect_dir=intersect_dir))
+        push!(
+            spine_end,
+            (
+                input = valid_line[end],
+                projected = s_1_t,
+                dir = dir,
+                intersect_dir = intersect_dir,
+            ),
+        )
     end
 end
 
-function project_tick_points!(result, trans, trans_inverse, range, coordinate, dim, limit_rect, spine_start, spine_end)
+function project_tick_points!(
+    result,
+    trans,
+    trans_inverse,
+    range,
+    coordinate,
+    dim,
+    limit_rect,
+    spine_start,
+    spine_end,
+)
     # dim == 1, is for longitude ticks
 
     point_fun(tick) = dim === 1 ? Point2(coordinate, tick) : Point2(tick, coordinate)
@@ -442,7 +505,8 @@ function project_tick_points!(result, trans, trans_inverse, range, coordinate, d
     start = point_fun(range[1])
     stop = point_fun(range[end])
 
-    lines, lines_transformed, intersections = valid_line_in_limits(trans, trans_inverse, limit_rect, start, stop)
+    lines, lines_transformed, intersections =
+        valid_line_in_limits(trans, trans_inverse, limit_rect, start, stop)
     spine_start_length = length(spine_start)
     spine_end_length = length(spine_end)
     for (line, line_t, intersect) in zip(lines, lines_transformed, intersections)
@@ -507,7 +571,7 @@ function vis_spine!(points, text, points_px, d, mindist, labeloffset)
         # TODO use xticklabelpad
         p_offset = p_px .+ (p.dir .* (3 * labeloffset))
         push!(points_px, p_offset)
-		x = round(p.input[d]; sigdigits = 3)
+        x = round(p.input[d]; sigdigits = 3)
         push!(text, string(isinteger(x) ? round(Int, x) : x, "°"))
     end
 end
@@ -527,21 +591,32 @@ function Makie.initialize_block!(axis::GeoAxis)
 
     # Set up transformations first, so that the scene can be set up
     # and linked to those.
-    transform_obs = Observable{Any}(identity; ignore_equal_values=true)
-    transform_inv_obs = Observable{Any}(identity; ignore_equal_values=true)
-    transform_ticks_obs = Observable{Any}(identity; ignore_equal_values=true)
-    transform_ticks_inv_obs = Observable{Any}(identity; ignore_equal_values=true)
+    transform_obs = Observable{Any}(identity; ignore_equal_values = true)
+    transform_inv_obs = Observable{Any}(identity; ignore_equal_values = true)
+    transform_ticks_obs = Observable{Any}(identity; ignore_equal_values = true)
+    transform_ticks_inv_obs = Observable{Any}(identity; ignore_equal_values = true)
     setfield!(axis, :transform_func, transform_obs)
     setfield!(axis, :inv_transform_func, transform_inv_obs)
+    setfield!(axis, :xaxislinks, GeoAxis[])
+    setfield!(axis, :yaxislinks, GeoAxis[])
+    setfield!(axis, :block_limit_linking, Ref(false))
+    setfield!(axis, :suppress_projected_propagation, Ref(false))
+    setfield!(
+        axis,
+        :linked_geographic_limits,
+        Observable{Union{Nothing,GeographicLimits}}(nothing; ignore_equal_values = true),
+    )
+    setfield!(axis, :cache, AxisCache())
+    setfield!(axis, :interaction_active, Observable(false; ignore_equal_values = true))
 
     # Set up the axis for the Scene, mostly using Makie's existing functionality
     scene = axis_setup!(axis)
 
     # Shorthand for what you see below - ONLY ACCESSIBLE WITHIN THIS FUNCTION!!
-    Obs(x) = Observable(x; ignore_equal_values=true)
+    Obs(x) = Observable(x; ignore_equal_values = true)
 
     # Keep the transformations up to date.
-    onany(scene, axis.dest, axis.source; update=true) do tp, sp
+    onany(scene, axis.dest, axis.source; update = true) do tp, sp
         # First we perform the transformation for the axis,
         trans = create_transform(tp, sp)
         transform_obs[] = trans
@@ -554,7 +629,9 @@ function Makie.initialize_block!(axis::GeoAxis)
         # and transforms it to the WGS84 CRS, which is how we display the ticks.
         # If you wanted ticks in the input CRS, you'd have to wait until a generic `NonlinearAxis`
         # is implemented, which would then not have any special treatment for geographic stuff.
-        if sp == "+proj=longlat +datum=WGS84" || sp == "+proj=latlong +datum=WGS84 +type=crs" || sp == GeoFormatTypes.EPSG(4326)
+        if sp == "+proj=longlat +datum=WGS84" ||
+           sp == "+proj=latlong +datum=WGS84 +type=crs" ||
+           sp == GeoFormatTypes.EPSG(4326)
             transform_ticks_obs[] = trans
             transform_ticks_inv_obs[] = transform_inv_obs[]
         else
@@ -568,8 +645,13 @@ function Makie.initialize_block!(axis::GeoAxis)
     latticks_line_obs = Obs(Point2d[])
 
     spines_obs = Obs(Spines())
-    finallimits = map(identity, scene, axis.finallimits; ignore_equal_values=true)
-    vp_unchanged = map(identity, scene, scene.viewport; ignore_equal_values=true)
+    graticule_obs = Obs(GraticuleCurve[])
+    viewport_obs = Obs(GeoViewport())
+    ticks_obs = Obs((Float64[], Float64[]))
+    finallimits = map(identity, scene, axis.finallimits; ignore_equal_values = true)
+    # Quantise viewport changes so sub-pixel layout feedback cannot keep the
+    # graticule/label pipeline running indefinitely.
+    vp_unchanged = map(_quantized_rect, scene, scene.viewport; ignore_equal_values = true)
     # This is kind of the main redrawing loop for the axis.  This should really be
     # factored out into a sync and async function, so that zooming is fluid, but
     # we can figure that out later.
@@ -577,8 +659,17 @@ function Makie.initialize_block!(axis::GeoAxis)
     # project them.  Those are stored in Observables which are used to produce
     # lineplots later on that form the grid.
     # TODO: implement a minor grid.
-    onany(scene, axis.xticks, axis.yticks, transform_ticks_obs, finallimits, vp_unchanged;
-        update=true) do user_xticks, user_yticks, trans, fl, vp
+    onany(
+        scene,
+        axis.xticks,
+        axis.yticks,
+        transform_ticks_obs,
+        finallimits,
+        vp_unchanged,
+        axis.interaction_active;
+        update = true,
+    ) do user_xticks, user_yticks, trans, fl, vp, interactive
+        quality_scale = interactive ? 0.25 : 1.0
 
         lon_transformed = Point2d[]
         lat_transformed = Point2d[]
@@ -589,161 +680,579 @@ function Makie.initialize_block!(axis::GeoAxis)
         xlims = Makie.xlimits(limits_t)
         ylims = Makie.ylimits(limits_t)
 
-        xticks = user_xticks isa Makie.Automatic ? geoticks(-180, 180, xlims...) : Makie.get_tickvalues(user_xticks, xlims...)
-        yticks = user_yticks isa Makie.Automatic ? geoticks(-90, 90, ylims...) : Makie.get_tickvalues(user_yticks, ylims...)
+        # Azimuthal/perspective projections reject points outside their domain,
+        # so inverting an interim/default camera rectangle can yield non-finite
+        # geographic bounds at construction or during limit resets. Fall back to
+        # the geographic extent of the visible projected boundary, then to the
+        # full globe, so graticule/tick code never ranges over Inf/NaN.
+        if !all(isfinite, xlims) || !all(isfinite, ylims)
+            gp0 = geoprojection(to_value(axis.dest), to_value(axis.source))
+            boundary0 = try
+                boundary_points(to_value(axis.dest), to_value(axis.source))
+            catch
+                Point2d[]
+            end
+            geo0 = geographic_extent_from_projected(
+                gp0,
+                [p for p in boundary0 if p in limit_rect],
+            )
+            if geo0 === nothing
+                xlims = (-180.0, 180.0)
+                ylims = (-90.0, 90.0)
+            else
+                xlims = (geo0[1], geo0[2])
+                ylims = (geo0[3], geo0[4])
+            end
+        end
+
+        xticks =
+            user_xticks isa Makie.Automatic ? geoticks(-180, 180, xlims...) :
+            Makie.get_tickvalues(user_xticks, xlims...)
+        yticks =
+            user_yticks isa Makie.Automatic ? geoticks(-90, 90, ylims...) :
+            Makie.get_tickvalues(user_yticks, ylims...)
 
         spines = spines_obs[]
         foreach(empty!, [spines.left, spines.right, spines.bottom, spines.top])
-        for lon in xticks
-            range = LinRange(yticks[1], yticks[end], 100)
-            project_tick_points!(lon_transformed, trans, trans_inverse, range, lon, 1, limit_rect, spines.bottom, spines.top)
-        end
 
+        # Grid line geometry goes through the same sphere-clip dispatch as everything else, so
+        # meridians/parallels break at the projection's discontinuity instead of smearing across
+        # it (antimeridian uses the centred frame, Option B). project_tick_points! is still used
+        # for the spine/tick-mark anchors at the limit-rect edges.
+        rctx = ProjectionRenderContext(
+            to_value(axis.dest),
+            to_value(axis.source);
+            quality_scale = quality_scale,
+        )
+        clip = rctx.clip
+        rotated = rctx.rotated
+        gridproj = rctx.projector
+        gridscale = rctx.resample_scale
+
+        # The antimeridian is one physical meridian, but it appears as a tick at both -180° and
+        # +180°. Pseudocylindrical/interrupted frames map those to distinct map edges (draw both);
+        # oblique/azimuthal frames drawn with the full transform map them to the SAME curve
+        # (`f(-180)≡f(180)`, e.g. bertin/aeqd/spilhaus), where drawing both overdraws the seam. Drop
+        # the +180° duplicate only when it actually coincides with -180° (sampled at a visible lat).
+        skip180 = let lo = yticks[1], hi = yticks[end]
+            any(t -> isapprox(t, -180.0; atol = 1.0e-6), xticks) &&
+                any(t -> isapprox(t, 180.0; atol = 1.0e-6), xticks) &&
+                _antimeridian_coincides(gridproj, lo, hi)
+        end
+        xticks_draw =
+            skip180 ? filter(t -> !isapprox(t, 180.0; atol = 1.0e-6), xticks) : xticks
+
+        # Tick-mark anchors at the visible limit-rect edges.
+        for lon in xticks_draw
+            range = LinRange(yticks[1], yticks[end], 100)
+            project_tick_points!(
+                Point2d[],
+                trans,
+                trans_inverse,
+                range,
+                lon,
+                1,
+                limit_rect,
+                spines.bottom,
+                spines.top,
+            )
+        end
         for lat in yticks
             range = LinRange(xticks[1], xticks[end], 100)
-            project_tick_points!(lat_transformed, trans, trans_inverse, range, lat, 2, limit_rect,
-                                 spines.left, spines.right)
+            project_tick_points!(
+                Point2d[],
+                trans,
+                trans_inverse,
+                range,
+                lat,
+                2,
+                limit_rect,
+                spines.left,
+                spines.right,
+            )
         end
+
+        # Adaptive graticule geometry through the shared sphere-clip pipeline.
+        gp = rctx.projection
+        extent =
+            (Float64(xlims[1]), Float64(xlims[2]), Float64(ylims[1]), Float64(ylims[2]))
+        gkey = (
+            to_value(axis.dest),
+            to_value(axis.source),
+            extent,
+            Tuple(xticks_draw),
+            Tuple(yticks),
+            quality_scale,
+        )
+        curves = getcache!(
+            axis.cache.graticules,
+            gkey,
+            () -> generate_graticule(
+                gp,
+                xticks_draw,
+                yticks,
+                extent;
+                project = gridproj,
+                scale = gridscale,
+                rotated = rotated,
+            ),
+        )
+        for c in curves
+            target = c.kind === :meridian ? lon_transformed : lat_transformed
+            append!(target, c.projected_geometry)
+            push!(target, Point2d(NaN, NaN))
+        end
+
         lonticks_line_obs[] = lon_transformed
         latticks_line_obs[] = lat_transformed
+        graticule_obs[] = curves
+        ticks_obs[] = (Float64.(xticks_draw), Float64.(yticks))
+        bkey = (to_value(axis.dest), to_value(axis.source))
+        boundary_obj = getcache!(
+            axis.cache.boundary,
+            bkey,
+            () -> try
+                ProjectionBoundary(boundary_components(gp))
+            catch
+                ProjectionBoundary()
+            end,
+        )
+        boundary = boundary_points(boundary_obj)
+        update_geoviewport!(viewport_obs, gp, limit_rect, boundary)
         notify(spines_obs)
         return
     end
     # These are the grid plots from earlier.
-    longridplot = lines!(scene, lonticks_line_obs; color=axis.xgridcolor, linewidth=axis.xgridwidth,
-        visible=axis.xgridvisible, linestyle=axis.xgridstyle, transparency=true, inspectable=false)
+    longridplot = lines!(
+        scene,
+        lonticks_line_obs;
+        color = axis.xgridcolor,
+        linewidth = axis.xgridwidth,
+        visible = axis.xgridvisible,
+        linestyle = axis.xgridstyle,
+        transparency = true,
+        inspectable = false,
+    )
     translate!(longridplot, 0, 0, 100)
-    latgridplot = lines!(scene, latticks_line_obs; color=axis.ygridcolor, linewidth=axis.ygridwidth,
-        visible=axis.ygridvisible, linestyle=axis.ygridstyle, transparency=true, inspectable=false)
+    latgridplot = lines!(
+        scene,
+        latticks_line_obs;
+        color = axis.ygridcolor,
+        linewidth = axis.ygridwidth,
+        visible = axis.ygridvisible,
+        linestyle = axis.ygridstyle,
+        transparency = true,
+        inspectable = false,
+    )
     translate!(latgridplot, 0, 0, 100)
+
+    # Projection-domain outline (the d3 `.sphere()` boundary of the active clip), drawn as the
+    # axis spine: limb circle for azimuthal horizons, ellipse/rectangle for cylindricals.
+    boundary_obs = lift(axis.dest, axis.source) do dest, src
+        gp = geoprojection(dest, src)
+        boundary_segments(
+            getcache!(
+                axis.cache.boundary,
+                (dest, src),
+                () -> try
+                    ProjectionBoundary(boundary_components(gp))
+                catch
+                    ProjectionBoundary()
+                end,
+            ),
+        )
+    end
+    spineplot = lines!(
+        scene,
+        boundary_obs;
+        color = axis.spinecolor,
+        linewidth = axis.spinewidth,
+        visible = axis.spinevisible,
+        transparency = true,
+        inspectable = false,
+    )
+    translate!(spineplot, 0, 0, 100)
 
     # This creates the spines and ticklabels plots for the grid.
     cam = scene.camera
     lon_spine = Obs(SpinePoint[])
+    lat_spine = Obs(SpinePoint[])
+    lon_labels = Obs(LabelCandidate[])
+    lat_labels = Obs(LabelCandidate[])
     lon_text = Obs(String[])
     lon_points_px = Obs(Point2d[])
-
-    lat_spine = Obs(SpinePoint[])
+    lon_align = Obs(Tuple{Symbol,Symbol}[])
+    lon_rotation = Obs(Float64[])
     lat_text = Obs(String[])
     lat_points_px = Obs(Point2d[])
+    lat_align = Obs(Tuple{Symbol,Symbol}[])
+    lat_rotation = Obs(Float64[])
+    lon_tick_segments_obs = Obs(Point2d[])
+    lat_tick_segments_obs = Obs(Point2d[])
+    decoration_extents = Obs(DecorationExtents())
+    prev_decoration_extents = Ref(DecorationExtents())
+    xlabel_pos_obs = Obs(Point2d(0, 0))
+    ylabel_pos_obs = Obs(Point2d(0, 0))
 
-    onany(scene, spines_obs, cam.projectionview, vp_unchanged) do spines, pv, area
-        poffset = minimum(area)
-        project_px(p) = to_ndim(Point2d, Makie.project(cam, :data, :pixel, p), 0.0f0) .+ poffset
-        project_p(p) = (input=p.input, projected=project_px(p.projected), dir=p.dir, intersect_dir=p.intersect_dir)
+    # The spine/tick-label positions feed the axis protrusions, which feed the layout, which
+    # changes `cam.projectionview`, re-triggering this very callback *synchronously* on the same
+    # stack. For most projections that settles in 1–2 passes, but some full-disk azimuthal aspects
+    # (e.g. equatorial `+proj=laea`) never converge and recurse until the stack overflows. Cap the
+    # synchronous re-entry depth: converging projections never approach the cap, while a runaway is
+    # bounded to a finite (near-settled) result instead of crashing.
+    spine_reentry = Ref(0)
+    onany(
+        scene,
+        spines_obs,
+        graticule_obs,
+        boundary_obs,
+        cam.projectionview,
+        vp_unchanged,
+        axis.xticksvisible,
+        axis.yticksvisible,
+        axis.xticklabelsvisible,
+        axis.yticklabelsvisible,
+        axis.xlabelvisible,
+        axis.ylabelvisible,
+        axis.xlabel,
+        axis.ylabel,
+        axis.xticklabelpad,
+        axis.yticklabelpad,
+        axis.xticksize,
+        axis.yticksize,
+        axis.xtickalign,
+        axis.ytickalign,
+        axis.xticklabelfont,
+        axis.yticklabelfont,
+        axis.xticklabelsize,
+        axis.yticklabelsize,
+    ) do spines, curves, boundary, pv, area, rest...
+        spine_reentry[] >= 8 && return
+        spine_reentry[] += 1
+        try
+            poffset = minimum(area)
+            vp = Rect2d(Vec2d(minimum(area)), Vec2d(widths(area)))
+            project_px(p) =
+                to_ndim(Point2d, Makie.project(cam, :data, :pixel, p), 0.0f0) .+ poffset
+            project_p(p) = (
+                input = p.input,
+                projected = project_px(p.projected),
+                dir = p.dir,
+                intersect_dir = p.intersect_dir,
+            )
 
-        left = project_p.(spines.left)
-        right = project_p.(spines.right)
-        bottom = project_p.(spines.bottom)
-        top = project_p.(spines.top)
+            left = project_p.(spines.left)
+            right = project_p.(spines.right)
+            bottom = project_p.(spines.bottom)
+            top = project_p.(spines.top)
 
-        lonspine = choose_side(left, right)
-        latspine = choose_side(bottom, top)
+            lonspine = choose_side(left, right)
+            latspine = choose_side(bottom, top)
 
-        # Filter out ticks that go almost parallel to boundingbox
-        function too_narrow(p)
-            if isfinite(p.intersect_dir)
-                line_dir = p.intersect_dir
-                a = abs(angle_between(p.dir, line_dir))
-                (a < 0.2 || abs(pi - a) < 0.2) && return false
+            # Filter out ticks that go almost parallel to boundingbox
+            function too_narrow(p)
+                if isfinite(p.intersect_dir)
+                    line_dir = p.intersect_dir
+                    a = abs(angle_between(p.dir, line_dir))
+                    (a < 0.2 || abs(pi - a) < 0.2) && return false
+                end
+                return true
             end
-            return true
+
+            filter!(too_narrow, lonspine)
+            filter!(too_narrow, latspine)
+
+            filter!(p -> filter_too_close(p, latspine), lonspine)
+            filter!(p -> filter_too_close(p, lonspine), latspine)
+            lon_spine[] = lonspine
+            lat_spine[] = latspine
+
+            # Boundary-aware labels from the actual visible projection boundary.
+            fonts = theme(axis.blockscene, :fonts)
+            cxp0 = vp.origin[1] + vp.widths[1] / 2
+            cyp0 = vp.origin[2] + vp.widths[2] / 2
+            # Keep projection-boundary components separate through label
+            # placement so interrupted/disconnected lobes never share
+            # intersections, normals or tangents.
+            bkey = (to_value(axis.dest), to_value(axis.source))
+            boundary_obj = getcache!(
+                axis.cache.boundary,
+                bkey,
+                () -> try
+                    ProjectionBoundary(
+                        boundary_components(
+                            geoprojection(to_value(axis.dest), to_value(axis.source)),
+                        ),
+                    )
+                catch
+                    ProjectionBoundary()
+                end,
+            )
+            boundary_px = [
+                filter(
+                    p ->
+                        isfinite(p[1]) &&
+                        isfinite(p[2]) &&
+                        abs(p[1] - cxp0) < 1.0e5 &&
+                        abs(p[2] - cyp0) < 1.0e5,
+                    project_px.(comp),
+                ) for comp in boundary_obj.components
+            ]
+            xt, yt = ticks_obs[]
+            meridian_curves =
+                project_curves_px([c for c in curves if c.kind === :meridian], project_px)
+            parallel_curves =
+                project_curves_px([c for c in curves if c.kind === :parallel], project_px)
+
+            quality = axis.interaction_active[] ? :interactive : :final
+            vpw = vp.widths[1] ÷ 8
+            vph = vp.widths[2] ÷ 8
+            lkey = (
+                to_value(axis.dest),
+                to_value(axis.source),
+                Tuple(xt),
+                Tuple(yt),
+                Int(vpw),
+                Int(vph),
+                quality,
+                axis.xaxisposition[],
+                axis.yaxisposition[],
+                axis.xticklabelplacement[],
+                axis.yticklabelplacement[],
+                (
+                    Float64(axis.xticklabelpad[]),
+                    Float64(axis.yticklabelpad[]),
+                    Float64(axis.xticksize[]),
+                    Float64(axis.yticksize[]),
+                    Float64(axis.xtickalign[]),
+                    Float64(axis.ytickalign[]),
+                    Float64(axis.xticklabelsize[]),
+                    Float64(axis.yticklabelsize[]),
+                    Float64(axis.xticklabelrotation[]),
+                    Float64(axis.yticklabelrotation[]),
+                    axis.xticklabelalign[],
+                    axis.yticklabelalign[],
+                    axis.xticklabelfont[],
+                    axis.yticklabelfont[],
+                    axis.xtickformat[],
+                    axis.ytickformat[],
+                    fonts,
+                ),
+            )
+            lon_cands = getcache!(
+                axis.cache.labels,
+                (lkey..., :meridian),
+                () -> place_graticule_labels(
+                    meridian_curves,
+                    xt,
+                    :meridian,
+                    boundary_px;
+                    side = axis.xaxisposition[],
+                    ticklabelpad = axis.xticklabelpad[],
+                    ticksize = axis.xticksize[],
+                    tickalign = axis.xtickalign[],
+                    rotation = axis.xticklabelrotation[],
+                    alignment = axis.xticklabelalign[],
+                    font = axis.xticklabelfont[],
+                    fonts = fonts,
+                    fontsize = axis.xticklabelsize[],
+                    format = axis.xtickformat[],
+                    quality = quality,
+                    placement = axis.xticklabelplacement[],
+                    center = Point2d(cxp0, cyp0),
+                ),
+            )
+            lat_cands = getcache!(
+                axis.cache.labels,
+                (lkey..., :parallel),
+                () -> place_graticule_labels(
+                    parallel_curves,
+                    yt,
+                    :parallel,
+                    boundary_px;
+                    side = axis.yaxisposition[],
+                    ticklabelpad = axis.yticklabelpad[],
+                    ticksize = axis.yticksize[],
+                    tickalign = axis.ytickalign[],
+                    rotation = axis.yticklabelrotation[],
+                    alignment = axis.yticklabelalign[],
+                    font = axis.yticklabelfont[],
+                    fonts = fonts,
+                    fontsize = axis.yticklabelsize[],
+                    format = axis.ytickformat[],
+                    quality = quality,
+                    placement = axis.yticklabelplacement[],
+                    center = Point2d(cxp0, cyp0),
+                ),
+            )
+
+            lon_labels[] = lon_cands
+            lat_labels[] = lat_cands
+            lon_pts, lon_strs, lon_als, lon_rots = renderable_label_data(lon_cands)
+            lat_pts, lat_strs, lat_als, lat_rots = renderable_label_data(lat_cands)
+            lon_points_px[] = lon_pts
+            lon_text[] = lon_strs
+            lon_align[] = lon_als
+            lon_rotation[] = lon_rots
+            lat_points_px[] = lat_pts
+            lat_text[] = lat_strs
+            lat_align[] = lat_als
+            lat_rotation[] = lat_rots
+
+            # Actual tick marks (pixel segments).
+            lon_tick_segments_obs[] =
+                tick_segments(lonspine, vp, axis.yticksize[], axis.ytickalign[])
+            lat_tick_segments_obs[] =
+                tick_segments(latspine, vp, axis.xticksize[], axis.xtickalign[])
+
+            # Viewport-independent protrusion extents: tick length + label padding +
+            # measured text size. They do NOT depend on the viewport, so the
+            # label -> protrusion -> layout loop converges.
+            ext = DecorationExtents()
+            cxp = vp.origin[1] + vp.widths[1] / 2
+            cyp = vp.origin[2] + vp.widths[2] / 2
+            xtick_out = axis.xticksize[] * (1.0 - axis.xtickalign[])
+            ytick_out = axis.yticksize[] * (1.0 - axis.ytickalign[])
+            if axis.xticksvisible[]
+                for p in latspine
+                    n = _spine_outward_normal(p, Point2d(cxp, cyp))
+                    side =
+                        abs(n[1]) >= abs(n[2]) ? (n[1] < 0 ? :left : :right) :
+                        (n[2] < 0 ? :bottom : :top)
+                    add_extent!(ext, side, xtick_out)
+                end
+            end
+            if axis.yticksvisible[]
+                for p in lonspine
+                    n = _spine_outward_normal(p, Point2d(cxp, cyp))
+                    side =
+                        abs(n[1]) >= abs(n[2]) ? (n[1] < 0 ? :left : :right) :
+                        (n[2] < 0 ? :bottom : :top)
+                    add_extent!(ext, side, ytick_out)
+                end
+            end
+            if axis.xticklabelsvisible[]
+                for cand in lon_cands
+                    cand.interior && continue
+                    off = xtick_out + axis.xticklabelpad[] + widths(cand.bbox_px)[2]
+                    add_extent!(ext, cand.side, off)
+                end
+            end
+            if axis.yticklabelsvisible[]
+                for cand in lat_cands
+                    cand.interior && continue   # interior labels reserve no layout space
+                    off = ytick_out + axis.yticklabelpad[] + widths(cand.bbox_px)[1]
+                    add_extent!(ext, cand.side, off)
+                end
+            end
+            # Axis labels reserve space only when visible and non-empty.
+            xlbl = axis.xlabel[]
+            if !Makie.iswhitespace(xlbl) && axis.xlabelvisible[]
+                xbb = _text_bbox(xlbl, axis.xlabelfont[], fonts, axis.xlabelsize[])
+                xh = widths(xbb)[2]
+                bottom_prot = ext.bottom
+                xpos =
+                    Point2d(cxp, vp.origin[2] - bottom_prot - axis.xlabelpadding[] - xh / 2)
+                xlabel_pos_obs[] = xpos
+                add_extent!(ext, :bottom, axis.xlabelpadding[] + xh)
+            end
+            ylbl = axis.ylabel[]
+            if !Makie.iswhitespace(ylbl) && axis.ylabelvisible[]
+                ybb = _text_bbox(ylbl, axis.ylabelfont[], fonts, axis.ylabelsize[])
+                yw = widths(ybb)[2]
+                yh = widths(ybb)[1]   # rotated -π/2: width/height swap
+                left_prot = ext.left
+                ypos =
+                    Point2d(vp.origin[1] - left_prot - axis.ylabelpadding[] - yw / 2, cyp)
+                ylabel_pos_obs[] = ypos
+                add_extent!(ext, :left, axis.ylabelpadding[] + yw)
+            end
+            # Only publish when the extents materially changed; this is what lets the
+            # label -> protrusion -> viewport -> label loop converge instead of
+            # oscillating forever on sub-pixel differences.
+            if !same_extents(prev_decoration_extents[], ext)
+                prev_decoration_extents[] =
+                    DecorationExtents(ext.left, ext.right, ext.bottom, ext.top)
+                decoration_extents[] = ext
+            end
+            return
+        finally
+            spine_reentry[] -= 1
         end
-
-        filter!(too_narrow, lonspine)
-        filter!(too_narrow, latspine)
-
-        filter!(p -> filter_too_close(p, latspine), lonspine)
-        filter!(p -> filter_too_close(p, lonspine), latspine)
-        lon_spine[] = lonspine
-        lat_spine[] = latspine
-        return
     end
 
-    onany(lat_spine, axis.xlabelpadding, axis.xticklabelsize) do spine, offset, size
-        empty!(lat_points_px[])
-        empty!(lat_text[])
-        vis_spine!(spine, lat_text[], lat_points_px[], 1, size * 2, offset)
-        notify(lat_text)
-        notify(lat_points_px)
-        return
-    end
-
-    onany(lon_spine, axis.ylabelpadding, axis.yticklabelsize) do spine, offset, size
-        empty!(lon_points_px[])
-        empty!(lon_text[])
-        vis_spine!(spine, lon_text[], lon_points_px[], 2, size * 2, offset)
-        notify(lon_text)
-        notify(lon_points_px)
-        return
-    end
-
-    # lonpoints = map(x-> map(x-> x.projected, x), lon_spine)
-    # scatter!(axis.blockscene, lonpoints, markersize=5, color=:red)
-
-    # latpoints = map(x -> map(x -> x.projected, x), lat_spine)
-    # scatter!(axis.blockscene, latpoints, markersize=7, color=(:blue, 0.5))
-
-    lattex = text!(axis.blockscene, lat_points_px;
-        text=lat_text, 
-        space=:pixel, 
-        align=(:center, :center),
-        font=axis.xticklabelfont, 
-        color=axis.xticklabelcolor,
-        fontsize=axis.xticklabelsize, 
-        visible=axis.xticklabelsvisible,
+    lattex = text!(
+        axis.blockscene,
+        lat_points_px;
+        text = lat_text,
+        space = :pixel,
+        align = lat_align,
+        rotation = lat_rotation,
+        font = axis.xticklabelfont,
+        color = axis.xticklabelcolor,
+        fontsize = axis.xticklabelsize,
+        visible = axis.xticklabelsvisible,
     )
 
-    lontex = text!(axis.blockscene, lon_points_px;
-        text=lon_text, 
-        space=:pixel, 
-        align=(:center, :center),
-        font=axis.yticklabelfont,
-        color=axis.yticklabelcolor,
-        fontsize=axis.yticklabelsize, 
-        visible=axis.yticklabelsvisible,
-        )
+    lontex = text!(
+        axis.blockscene,
+        lon_points_px;
+        text = lon_text,
+        space = :pixel,
+        align = lon_align,
+        rotation = lon_rotation,
+        font = axis.yticklabelfont,
+        color = axis.yticklabelcolor,
+        fontsize = axis.yticklabelsize,
+        visible = axis.yticklabelsvisible,
+    )
+
+    lon_ticks_plot = linesegments!(
+        axis.blockscene,
+        lon_tick_segments_obs;
+        space = :pixel,
+        color = axis.ytickcolor,
+        linewidth = axis.ytickwidth,
+        visible = axis.yticksvisible,
+        inspectable = false,
+    )
+    lat_ticks_plot = linesegments!(
+        axis.blockscene,
+        lat_tick_segments_obs;
+        space = :pixel,
+        color = axis.xtickcolor,
+        linewidth = axis.xtickwidth,
+        visible = axis.xticksvisible,
+        inspectable = false,
+    )
+
+    xlabeltext = text!(
+        axis.blockscene,
+        xlabel_pos_obs;
+        text = axis.xlabel,
+        space = :pixel,
+        align = (:center, :center),
+        font = axis.xlabelfont,
+        color = axis.xlabelcolor,
+        fontsize = axis.xlabelsize,
+        visible = axis.xlabelvisible,
+        inspectable = false,
+    )
+    ylabeltext = text!(
+        axis.blockscene,
+        ylabel_pos_obs;
+        text = axis.ylabel,
+        space = :pixel,
+        align = (:center, :center),
+        rotation = -π / 2,
+        font = axis.ylabelfont,
+        color = axis.ylabelcolor,
+        fontsize = axis.ylabelsize,
+        visible = axis.ylabelvisible,
+        inspectable = false,
+    )
 
     fonts = theme(axis.blockscene, :fonts)
-    # Finally calculate protrusions and report all bounding boxes
-    # to the layout system.
-    approx_x_protrusion = map(
-        axis.blockscene, 
-        axis.yticklabelfont, axis.yticklabelsize, axis.yticklabelpad, lat_text, axis.yticklabelsvisible
-        ) do ticklabel_font, ticklabel_size, ticklabel_pad, text, ticklabelsvisible
-        ret = 0.0f0
-
-        if ticklabelsvisible
-            max_height = 0.0
-            for str in text
-                bb = Makie.text_bb(str, Makie.to_font(fonts, ticklabel_font), ticklabel_size)
-                max_height = max(max_height, widths(bb)[2])
-            end
-            ret += max_height + ticklabel_pad
-        end
-
-        return ret
-    end
-
-    approx_y_protrusion = map(
-        axis.blockscene, 
-        axis.xticklabelfont, axis.xticklabelsize, axis.xticklabelpad, lon_text, axis.xticklabelsvisible,
-        ) do ticklabel_font, ticklabel_size, ticklabel_pad, text, ticklabelsvisible
-
-        ret = 0.0f0
-
-        if ticklabelsvisible
-            max_width = 0.0
-            for str in text
-                bb = Makie.text_bb(str, Makie.to_font(fonts, ticklabel_font), ticklabel_size)
-                max_width = max(max_width, widths(bb)[1])
-            end
-            ret += max_width + ticklabel_pad
-        end
-
-        return ret
-
-    end
 
     elements = Dict{Symbol,Any}()
     setfield!(axis, :elements, elements)
@@ -751,58 +1260,142 @@ function Makie.initialize_block!(axis::GeoAxis)
     elements[:ygrid] = latgridplot
     elements[:xticklabels] = lontex
     elements[:yticklabels] = lattex
+    elements[:xticks] = lon_ticks_plot
+    elements[:yticks] = lat_ticks_plot
+    elements[:xlabel] = xlabeltext
+    elements[:ylabel] = ylabeltext
+    # Register the spine as a decoration (excluded from data limits) AND as the projection-domain
+    # outline that `getlimits` clamps the data window to (cartopy's `projection.x_limits`). See
+    # getlimits in makie-axis.jl.
+    elements[:spine] = spineplot
 
-    subtitlepos = lift(axis.blockscene, scene.viewport, axis.titlegap, axis.titlealign, axis.xaxisposition;
-        ignore_equal_values=true) do a,
-    titlegap, align, xaxisposition
-        xaxisprotrusion = 0f0
-        align_factor = Makie.halign2num(align, "Horizontal title align $align not supported.")
+    subtitlepos = lift(
+        axis.blockscene,
+        scene.viewport,
+        axis.titlegap,
+        axis.titlealign,
+        axis.xaxisposition;
+        ignore_equal_values = true,
+    ) do a, titlegap, align, xaxisposition
+        xaxisprotrusion = 0.0f0
+        align_factor =
+            Makie.halign2num(align, "Horizontal title align $align not supported.")
         x = a.origin[1] + align_factor * a.widths[1]
 
-        yoffset = Makie.top(a) + titlegap + (xaxisposition === (:top) ? xaxisprotrusion : 0.0f0)
+        yoffset =
+            Makie.top(a) + titlegap + (xaxisposition === (:top) ? xaxisprotrusion : 0.0f0)
 
         return Point2d(x, yoffset)
     end
 
-    titlealignnode = lift(axis.blockscene, axis.titlealign; ignore_equal_values=true) do align
-        (align, :bottom)
-    end
+    titlealignnode =
+        lift(axis.blockscene, axis.titlealign; ignore_equal_values = true) do align
+            (align, :bottom)
+        end
 
     subtitlet = text!(
-        axis.blockscene, subtitlepos,
-        text=axis.subtitle,
-        visible=axis.subtitlevisible,
-        fontsize=axis.subtitlesize,
-        align=titlealignnode,
-        font=axis.subtitlefont,
-        color=axis.subtitlecolor,
-        lineheight=axis.subtitlelineheight,
-        markerspace=:data,
-        inspectable=false)
+        axis.blockscene,
+        subtitlepos,
+        text = axis.subtitle,
+        visible = axis.subtitlevisible,
+        fontsize = axis.subtitlesize,
+        align = titlealignnode,
+        font = axis.subtitlefont,
+        color = axis.subtitlecolor,
+        lineheight = axis.subtitlelineheight,
+        markerspace = :data,
+        inspectable = false,
+    )
 
-    titlepos = lift(Makie.calculate_title_position, axis.blockscene, scene.viewport, axis.titlegap, axis.subtitlegap,
-        axis.titlealign, axis.xaxisposition, Observable(0f0), axis.subtitlelineheight, axis, subtitlet; ignore_equal_values=true)
+    titlepos = lift(
+        Makie.calculate_title_position,
+        axis.blockscene,
+        scene.viewport,
+        axis.titlegap,
+        axis.subtitlegap,
+        axis.titlealign,
+        axis.xaxisposition,
+        Observable(0.0f0),
+        axis.subtitlelineheight,
+        axis,
+        subtitlet;
+        ignore_equal_values = true,
+    )
 
     titlet = text!(
-        axis.blockscene, titlepos,
-        text=axis.title,
-        visible=axis.titlevisible,
-        fontsize=axis.titlesize,
-        align=titlealignnode,
-        font=axis.titlefont,
-        color=axis.titlecolor,
-        lineheight=axis.titlelineheight,
-        markerspace=:data,
-        inspectable=false)
+        axis.blockscene,
+        titlepos,
+        text = axis.title,
+        visible = axis.titlevisible,
+        fontsize = axis.titlesize,
+        align = titlealignnode,
+        font = axis.titlefont,
+        color = axis.titlecolor,
+        lineheight = axis.titlelineheight,
+        markerspace = :data,
+        inspectable = false,
+    )
 
-    yaxis = (; protrusion=approx_x_protrusion)
-    xaxis = (; protrusion=approx_y_protrusion)
-    map!(compute_protrusions, axis.blockscene, axis.layoutobservables.protrusions, axis.title, axis.titlesize,
-        axis.titlegap, axis.titlevisible,
-        xaxis.protrusion, 
-        yaxis.protrusion,
-        axis.subtitle, axis.subtitlevisible, axis.subtitlesize, axis.subtitlegap,
-        axis.titlelineheight, axis.subtitlelineheight, subtitlet, titlet)
+    # Exact protrusions from the actual decoration extents (see layout.jl). This
+    # must run after the title/subtitle plots exist because it measures them
+    # directly. Values are only published when they change materially, so the
+    # layout loop can converge instead of oscillating.
+    last_protrusions =
+        Ref(GridLayoutBase.RectSides{Float32}(-1.0f0, -1.0f0, -1.0f0, -1.0f0))
+    onany(
+        axis.blockscene,
+        axis.title,
+        axis.titlesize,
+        axis.titlegap,
+        axis.titlevisible,
+        decoration_extents,
+        axis.subtitle,
+        axis.subtitlevisible,
+        axis.subtitlesize,
+        axis.subtitlegap,
+        axis.titlelineheight,
+        axis.subtitlelineheight,
+        subtitlet,
+        titlet,
+    ) do title,
+    titlesize,
+    titlegap,
+    titlevisible,
+    dextents,
+    subtitle,
+    subtitlevisible,
+    subtitlesize,
+    subtitlegap,
+    titlelineheight,
+    subtitlelineheight,
+    st,
+    tt
+        newp = compute_protrusions(
+            title,
+            titlesize,
+            titlegap,
+            titlevisible,
+            dextents,
+            subtitle,
+            subtitlevisible,
+            subtitlesize,
+            subtitlegap,
+            titlelineheight,
+            subtitlelineheight,
+            st,
+            tt,
+        )
+        old = last_protrusions[]
+        changed = any(
+            abs(getfield(newp, s) - getfield(old, s)) > 0.25 for
+            s in (:left, :right, :bottom, :top)
+        )
+        if changed
+            last_protrusions[] = newp
+            axis.layoutobservables.protrusions[] = newp
+        end
+        return
+    end
 
     fl = axis.finallimits[]
     notify(axis.limits)
@@ -813,41 +1406,6 @@ function Makie.initialize_block!(axis::GeoAxis)
     return axis
 end
 
-# TODO, this just pads all protrusions
-# We'll need to figure out which protrusion actually contains any labels
-# To correctly calculate the protrusions
-function compute_protrusions(title, titlesize, titlegap, titlevisible,
-    xaxisprotrusion, yaxisprotrusion,
-    subtitle, subtitlevisible, subtitlesize, subtitlegap, titlelineheight, subtitlelineheight,
-    subtitlet, titlet)
-
-    local left::Float32, right::Float32, bottom::Float32, top::Float32 = 0.0f0, 0.0f0, 0.0f0, 0.0f0
-
-    bottom = xaxisprotrusion
-    top = xaxisprotrusion
-
-    titleheight = Makie.boundingbox(titlet, :data).widths[2] + titlegap
-    subtitleheight = Makie.boundingbox(subtitlet, :data).widths[2] + subtitlegap
-
-    titlespace = if !titlevisible || Makie.iswhitespace(title)
-        0.0f0
-    else
-        titleheight
-    end
-    subtitlespace = if !subtitlevisible || Makie.iswhitespace(subtitle)
-        0.0f0
-    else
-        subtitleheight
-    end
-
-    top += titlespace + subtitlespace
-
-    left = yaxisprotrusion
-    right = yaxisprotrusion
-
-    return GridLayoutBase.RectSides{Float32}(left, right, bottom, top)
-end
-
 # This is where we override the stuff to make it our stuff.
 function Makie.plot!(axis::GeoAxis, plot::Makie.AbstractPlot)
     # deal with setting the transform_func correctly
@@ -855,22 +1413,29 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.AbstractPlot)
     transformfunc = lift(create_transform, axis.dest, source)
 
     if !Makie.not_in_data_space(plot)
-        trans = Makie.Transformation(transformfunc; get(plot.kw, :transformation, Attributes())...)
+        trans = Makie.Transformation(
+            transformfunc;
+            get(plot.kw, :transformation, Attributes())...,
+        )
         plot.kw[:transformation] = trans
     end
 
     # remove the reset_limits kwarg if there is one, this determines whether to automatically reset limits
     # on plot insertion
     reset_limits = to_value(pop!(plot.kw, :reset_limits, true))
-    
+
     # actually plot
     Makie.plot!(axis.scene, plot)
 
     # reset limits ONLY IF the user has not said otherwise
     if reset_limits
-        # some area-like plots basically always look better if they cover the whole plot area.
-        # adjust the limit margins in those cases automatically.
-        Makie.needs_tight_limits(plot) && Makie.tightlimits!(axis)
+        # some area-like plots (meshimage/surface) look better covering the whole plot area, so
+        # tighten the margins, but keep a 1% sliver rather than (0,0) so the projection-boundary
+        # spine, drawn at the very edge of the projected domain, isn't half-clipped by the axis.
+        if Makie.needs_tight_limits(plot)
+            axis.xautolimitmargin = (0.01, 0.01)
+            axis.yautolimitmargin = (0.01, 0.01)
+        end
 
         if Makie.is_open_or_any_parent(axis.scene)
             Makie.reset_limits!(axis)
@@ -887,7 +1452,20 @@ end
 function _create_plot!(F, attributes::Dict, ax::GeoAxis, args...)
     source = pop!(attributes, :source, nothing)
     dest = pop!(attributes, :dest, nothing)
-    plot = Plot{Makie.default_plot_func(F, args)}(args, attributes)
+    PT = Makie.default_plot_func(F, args)
+    if F === Makie.poly && _is_poly_geometry(args...)
+        attributes[:source] = source === nothing ? ax.source : source
+        attributes[:dest] = dest === nothing ? ax.dest : dest
+        rasterize = pop!(attributes, :rasterize, false)
+        plot = GeoSeamPoly((_GeoSeamPolyArg(args, rasterize),), attributes)
+    elseif F === Makie.lines && _is_line_geometry(args...)
+        attributes[:source] = source === nothing ? ax.source : source
+        attributes[:dest] = dest === nothing ? ax.dest : dest
+        rasterize = pop!(attributes, :rasterize, false)
+        plot = GeoSeamLines((_GeoSeamLinesArg(args, rasterize),), attributes)
+    else
+        plot = Plot{PT}(args, attributes)
+    end
     isnothing(source) || (plot.kw[:source] = source)
     isnothing(dest) || (plot.kw[:dest] = dest)
     Makie.plot!(ax, plot)

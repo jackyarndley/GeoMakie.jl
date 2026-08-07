@@ -8,7 +8,10 @@ that it's best to leave it here.
 =#
 
 # This is how we implement Makie's transformation interface.
-function Makie.apply_transform(f::Geodesy.ECEFfromLLA, pt::V) where V <: VecTypes{3, T} where {T}
+function Makie.apply_transform(
+    f::Geodesy.ECEFfromLLA,
+    pt::V,
+) where {V<:VecTypes{3,T}} where {T}
     # The convention in Makie is that x is longitude, y is latitude, and z is altitude if present.
     # However, the `LLA` coordinate space expects x to be latitude and y to be longitude,
     # so we have to manually swap the coordinates.
@@ -16,13 +19,16 @@ function Makie.apply_transform(f::Geodesy.ECEFfromLLA, pt::V) where V <: VecType
 end
 
 # If a Point2f is passed, we decide to handle that by assuming altitude to be 0.  
-function Makie.apply_transform(f::Geodesy.ECEFfromLLA, pt::V) where V <: VecTypes{2, T} where {T}
+function Makie.apply_transform(
+    f::Geodesy.ECEFfromLLA,
+    pt::V,
+) where {V<:VecTypes{2,T}} where {T}
     return Makie.apply_transform(f, Point3d(pt[1], pt[2], 0))
 end
 
 # This is a necessary dispatch for all vectors of points.
 function Makie.apply_transform(f::Geodesy.ECEFfromLLA, data::AbstractArray)
-    map(point-> Makie.apply_transform(f, point), data)
+    map(point -> Makie.apply_transform(f, point), data)
 end
 
 # ## Bonus points
@@ -32,17 +38,18 @@ end
 # but useful nonetheless.
 Makie.inverse_transform(f::Geodesy.ECEFfromLLA) = Base.inv(f)
 # and its application:
-function Makie.apply_transform(f::Geodesy.LLAfromECEF, pt::V) where V <: VecTypes{3, T} where {T}
+function Makie.apply_transform(f::Geodesy.LLAfromECEF, pt::VecTypes{3,T}) where {T}
+    V = typeof(pt)
     return V((f(ECEF(pt[1], pt[2], pt[3])))...)
 end
 
-function Makie.apply_transform(f::Geodesy.LLAfromECEF, pt::V) where V <: VecTypes{N, T} where {N, T}
+function Makie.apply_transform(f::Geodesy.LLAfromECEF, pt::VecTypes{N,T}) where {N,T}
     return Makie.apply_transform(f, to_ndim(Point3d, pt, 0))
 end
 
 # This is a necessary dispatch for all vectors of points.
 function Makie.apply_transform(f::Geodesy.LLAfromECEF, data::AbstractArray)
-    map(point-> Makie.apply_transform(f, point), data)
+    map(point -> Makie.apply_transform(f, point), data)
 end
 
 # Examples
@@ -110,5 +117,3 @@ lp.transformation.transform_func[] = transf2
 f
 
 =#
-
-
