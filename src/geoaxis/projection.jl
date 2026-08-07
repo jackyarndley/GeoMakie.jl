@@ -98,6 +98,56 @@ end
 
 create_geoprojection(dest, source) = geoprojection(dest, source)
 
+"""
+    ProjectionRenderContext
+
+One object describing how geometry for a destination is clipped, resampled and
+displayed, so every GeoAxis render path (graticules, lines, polygons,
+contours, fills, surfaces, meshes, spines) derives its frame from a single
+place instead of re-selecting it inline:
+
+- `projection`: the `GeoProjection` (forward/inverse `Proj.Transformation`).
+- `clip`: the active `SphereClip` strategy.
+- `geographic_transform`: the full forward transform (geographic lon/lat → projected).
+- `display_transform`: the transform rotated-frame (Option B) output is drawn
+  with — the centred projection for an antimeridian seam, the native centred
+  projector for an oblique seam, otherwise the full transform.
+- `projector`: error-safe `(lon, lat) -> (x, y)` closure of `display_transform`.
+- `resample_scale`: adaptive-resampling scale for the display frame, already
+  multiplied by `quality_scale`.
+- `rotated`: whether seam-split output is emitted in the canonical rotated
+  frame (Option B) and therefore drawn with `display_transform`.
+"""
+struct ProjectionRenderContext
+    projection::GeoProjection
+    clip::SphereClip
+    geographic_transform
+    display_transform
+    projector
+    resample_scale::Float64
+    rotated::Bool
+end
+
+function ProjectionRenderContext(dest, source; quality_scale::Real = 1.0)
+    gp = geoprojection(dest, source)
+    t = gp.forward
+    clip = gp.traits.clip_strategy
+    rotated = clip isa AntimeridianClip || clip isa ObliqueAntimeridianClip
+    display = if clip isa ObliqueAntimeridianClip
+        clip.centred
+    elseif clip isa AntimeridianClip
+        create_transform(_centred_dest(dest), source)
+    else
+        t
+    end
+    proj = _projector(display)
+    return ProjectionRenderContext(gp, clip, t, display, proj,
+        resample_scale(proj) * Float64(quality_scale), rotated)
+end
+
+ProjectionRenderContext(gp::GeoProjection; quality_scale::Real = 1.0) =
+    ProjectionRenderContext(gp.destination, gp.source; quality_scale = quality_scale)
+
 # Projector closures work on both `GeoProjection` and raw `Proj.Transformation`;
 # the GeoAxis v2 paths use the wrapper, legacy code can keep using raw transforms.
 _projector(gp::GeoProjection) = _projector(gp.forward)

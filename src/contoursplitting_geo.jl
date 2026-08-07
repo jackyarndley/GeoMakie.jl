@@ -51,24 +51,13 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contourf)
         [:polys, :computed_colors, :transform_func],
         [:split_polys, :split_colors],
     ) do (polys, colors, tfunc), changed, cached
-        clip = clip_strategy(tfunc)
-        clip isa NoClip && return (polys, colors)
-        if clip isa AntimeridianClip
-            # Option B: clip/resample in the rotated canonical frame and draw with the
-            # centred projector (lon_0=0); avoids PROJ's half-open longitude-wrap collapsing
-            # the seam onto one map edge (the moll +lon_0=180 bug).
-            ctf = create_transform(_centred_dest(to_value(axis.dest)), to_value(source))
-            project = _projector(ctf); scale = resample_scale(project)
-            return _split_polys_colors(polys, colors, clip, project, scale; rotated = true)
-        elseif clip isa ObliqueAntimeridianClip
-            # Option B with a NATIVE centred projector (bertin): clip at the rotated antimeridian,
-            # draw the rotated split with the native Hammer so the ±π seam keeps its two edges.
-            project = _projector(clip.centred); scale = resample_scale(project)
-            return _split_polys_colors(polys, colors, clip, project, scale; rotated = true)
-        else
-            project = _projector(tfunc); scale = resample_scale(project)
-            return _split_polys_colors(polys, colors, clip, project, scale; rotated = false)
-        end
+        rctx = ProjectionRenderContext(to_value(axis.dest), to_value(source))
+        rctx.clip isa NoClip && return (polys, colors)
+        # Option B: clip/resample in the canonical rotated frame and draw with the centred
+        # projector (lon_0=0 / native centred), avoiding PROJ's half-open longitude-wrap
+        # collapsing the seam onto one map edge (the moll +lon_0=180 bug, bertin's ±π seam).
+        return _split_polys_colors(polys, colors, rctx.clip, rctx.projector,
+            rctx.resample_scale; rotated = rctx.rotated)
     end
 
     # the split child must draw in the SAME frame the split polys were emitted in: centred
@@ -105,9 +94,7 @@ end
 # (Option B, geometry is emitted in the rotated frame), the full transform otherwise.
 function _child_transformfunc(axis, source)
     lift(axis.dest, source) do dest, src
-        ftf = create_transform(dest, src); clip = clip_strategy(ftf)
-        clip isa AntimeridianClip ? create_transform(_centred_dest(dest), src) :
-        clip isa ObliqueAntimeridianClip ? clip.centred : ftf
+        ProjectionRenderContext(dest, src).display_transform
     end
 end
 
@@ -135,16 +122,14 @@ end
 # the split polygons and a `group` vector mapping each output piece back to its input user
 # geometry element (so per-element colours can be replicated). Mirrors the contourf path.
 function _split_geom(geom, dest, source)
-    ftf = create_transform(dest, source); clip = clip_strategy(ftf)
+    rctx = ProjectionRenderContext(dest, source)
+    clip = rctx.clip
     polys = GeometryBasics.Polygon{2,Float32}[]; group = Int[]
     user_pairs = _user_polys(geom)
     clip isa NoClip && (for (k, p) in user_pairs; push!(polys, p); push!(group, k); end; return (polys, group))
-    rotated = clip isa AntimeridianClip || clip isa ObliqueAntimeridianClip
-    project = _projector(clip isa ObliqueAntimeridianClip ? clip.centred :
-                         clip isa AntimeridianClip ? create_transform(_centred_dest(dest), source) : ftf)
-    scale = resample_scale(project)
     for (k, p) in user_pairs
-        pieces = _split_polygon(clip, _poly_rings(p), project, scale; rotated = rotated)
+        pieces = _split_polygon(clip, _poly_rings(p), rctx.projector,
+            rctx.resample_scale; rotated = rctx.rotated)
         append!(polys, pieces); append!(group, fill(k, length(pieces)))
     end
     return (polys, group)
@@ -209,11 +194,9 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Contour)
     child = _find_child(plot, Makie.Lines)
     if child !== nothing
         splitpts = lift(child[1], axis.dest, source) do pts, dest, src
-            ftf = create_transform(dest, src); clip = clip_strategy(ftf)
-            rotated = clip isa AntimeridianClip || clip isa ObliqueAntimeridianClip
-            project = _projector(clip isa ObliqueAntimeridianClip ? clip.centred :
-                                 clip isa AntimeridianClip ? create_transform(_centred_dest(dest), src) : ftf)
-            split_resample_line(pts, ftf; project = project, rotated = rotated)
+            rctx = ProjectionRenderContext(dest, src)
+            split_resample_line(pts, rctx.geographic_transform;
+                project = rctx.projector, rotated = rctx.rotated)
         end
         col = lift(c -> c isa AbstractVector ? :black : c, child.color)   # per-vertex colour can't survive resampling
         _drop_child!(axis.scene, plot, child)
@@ -239,11 +222,9 @@ function Makie.plot!(axis::GeoAxis, plot::Makie.Lines{<:Tuple{<:AbstractVector{<
     # connect so cycle colour/palette resolves from the scene, but hide the unsplit drawing
     Makie.plot!(axis.scene, plot); plot.visible = false
     splitpts = lift(plot[1], axis.dest, source) do pts, dest, src
-        ftf = create_transform(dest, src); clip = clip_strategy(ftf)
-        rotated = clip isa AntimeridianClip || clip isa ObliqueAntimeridianClip
-        project = _projector(clip isa ObliqueAntimeridianClip ? clip.centred :
-                             clip isa AntimeridianClip ? create_transform(_centred_dest(dest), src) : ftf)
-        split_resample_line(pts, ftf; project = project, rotated = rotated)
+        rctx = ProjectionRenderContext(dest, src)
+        split_resample_line(pts, rctx.geographic_transform;
+            project = rctx.projector, rotated = rctx.rotated)
     end
     Makie.lines!(
         axis.scene, splitpts;
@@ -269,9 +250,14 @@ end
 # frame + centred projector, for the antimeridian, so lon_0=180 doesn't collapse), triangulated,
 # and faces straddling the tear are subdivided/dropped (`_clip_faces`). Returns (mesh, flat colour vector).
 function _geo_grid_mesh(dest, source, xs, ys, vals)
-    ftf = create_transform(dest, source); clip = clip_strategy(ftf)
+    rctx = ProjectionRenderContext(dest, source)
+    clip = rctx.clip
+    # The mesh's canonical frame is the longitude-rotated frame (Option B for the
+    # antimeridian, so lon_0=180 doesn't collapse). Oblique rotations are full 3-D
+    # rotations with no single longitude shift, so the rectilinear grid keeps
+    # geographic coordinates and the full transform.
     rotated = clip isa AntimeridianClip
-    tf = rotated ? create_transform(_centred_dest(dest), source) : ftf
+    tf = rotated ? rctx.display_transform : rctx.geographic_transform
     lon0 = rotated ? clip.lon0 : 0.0
     # heatmap passes cell EDGES (n+1) with per-cell data (n); use centres so the vertex grid
     # matches `vals`. surface passes coordinate vectors matching `vals` already.

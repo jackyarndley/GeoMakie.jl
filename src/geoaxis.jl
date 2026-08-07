@@ -661,11 +661,12 @@ function Makie.initialize_block!(axis::GeoAxis)
         # meridians/parallels break at the projection's discontinuity instead of smearing across
         # it (antimeridian uses the centred frame, Option B). project_tick_points! is still used
         # for the spine/tick-mark anchors at the limit-rect edges.
-        clip = clip_strategy(trans)
-        rotated = clip isa AntimeridianClip
-        gridproj = _projector(rotated ?
-            create_transform(_centred_dest(to_value(axis.dest)), "+proj=longlat +datum=WGS84") : trans)
-        gridscale = resample_scale(gridproj) * quality_scale
+        rctx = ProjectionRenderContext(to_value(axis.dest), to_value(axis.source);
+            quality_scale = quality_scale)
+        clip = rctx.clip
+        rotated = rctx.rotated
+        gridproj = rctx.projector
+        gridscale = rctx.resample_scale
 
         # The antimeridian is one physical meridian, but it appears as a tick at both -180° and
         # +180°. Pseudocylindrical/interrupted frames map those to distinct map edges (draw both);
@@ -691,7 +692,7 @@ function Makie.initialize_block!(axis::GeoAxis)
         end
 
         # Adaptive graticule geometry through the shared sphere-clip pipeline.
-        gp = geoprojection(to_value(axis.dest), to_value(axis.source))
+        gp = rctx.projection
         extent = (Float64(xlims[1]), Float64(xlims[2]), Float64(ylims[1]), Float64(ylims[2]))
         gkey = (to_value(axis.dest), to_value(axis.source), extent,
             Tuple(xticks_draw), Tuple(yticks), quality_scale)
