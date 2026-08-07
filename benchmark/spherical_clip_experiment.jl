@@ -8,7 +8,8 @@
 # `GO.intersection(GO.Spherical(), a, b)` cannot be called at all. The parity
 # test below (`test/sphere_clip.jl` "GeometryOps spherical clipping parity")
 # is `@test_broken` until an upstream GeometryOps release resolves the
-# ambiguity; it will then start validating the narrow convex-parity contract.
+# ambiguity (JuliaGeo/GeometryOps.jl#457); it will then start validating the
+# narrow convex-parity contract.
 
 using GeoMakie
 const G = GeoMakie

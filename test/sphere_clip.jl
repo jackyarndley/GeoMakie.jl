@@ -120,6 +120,7 @@ end
     # upstream release fixes that, this test should start passing: the narrow
     # contract is convex-polygon ∩ convex-polygon parity with GeoMakie's d3
     # `_clip_against_polygon` (no holes, no d3 rejoining semantics needed).
+    # Upstream blocker: https://github.com/JuliaGeo/GeometryOps.jl/issues/457
     clip = [(0.0, 0.0), (30.0, 0.0), (30.0, 30.0), (0.0, 30.0)]
     subj = [(10.0, 10.0), (40.0, 10.0), (40.0, 40.0), (10.0, 40.0)]
     pa = G.GI.Polygon([G.GI.LinearRing([G.GI.Point(p) for p in clip])])
