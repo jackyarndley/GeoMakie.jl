@@ -81,6 +81,34 @@ const _LL = "+proj=longlat +datum=WGS84"
         @test all(t -> t[2] == 1, ixf)
     end
 
+    @testset "generic GI polygon traversal keeps group indices" begin
+        p1 = Polygon(Point2f[(0, 0), (10, 0), (10, 10), (0, 10)])
+        p2 = Polygon(Point2f[(20, 0), (30, 0), (30, 10), (20, 10)])
+        mp = MultiPolygon([p1, p2])
+        # Vectors, tuples, single polygons and MultiPolygons all flatten.
+        @test length(G._collect_polys([p1, mp])) == 3
+        @test length(G._collect_polys((p1, mp, [p2]))) == 4
+        @test length(G._collect_polys(mp)) == 2
+        @test length(G._collect_polys(p1)) == 1
+        # `_user_polys` tags each flattened piece with its user-element index so
+        # per-element colours can be replicated (two pieces from element 2).
+        pairs = G._user_polys([p1, mp])
+        @test [k for (k, _) in pairs] == [1, 2, 2]
+        @test pairs[1][2] == p1
+        @test pairs[2][2] == p1
+        @test pairs[3][2] == p2
+        # GeoJSON FeatureCollections traverse through GI traits, one user
+        # element per feature.
+        fc = G.GeoJSON.read("""{"type":"FeatureCollection","features":[
+          {"type":"Feature","properties":{},"geometry":{"type":"Polygon",
+            "coordinates":[[[0,0],[10,0],[10,10],[0,0]]]}},
+          {"type":"Feature","properties":{},"geometry":{"type":"MultiPolygon",
+            "coordinates":[[[[20,0],[30,0],[30,10],[20,0]]],[[[40,0],[50,0],[50,10],[40,0]]]]}}
+        ]}""")
+        @test length(G._collect_polys(fc)) == 3
+        @test [k for (k, _) in G._user_polys(fc)] == [1, 2, 2]
+    end
+
     @testset "curve tangents never span NaN separators" begin
         pts = Point2d[
             Point2d(0, 0), Point2d(10, 0), Point2d(20, 0),

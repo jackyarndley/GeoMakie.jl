@@ -1382,9 +1382,38 @@ function _poly_rings(poly)
     return rings
 end
 
-_collect_polys(p::GeometryBasics.Polygon) = GeometryBasics.Polygon[p]
-_collect_polys(mp::GeometryBasics.MultiPolygon) = GeometryBasics.Polygon[p for p in mp.polygons]
-_collect_polys(v) = isempty(v) ? GeometryBasics.Polygon[] : reduce(vcat, (_collect_polys(g) for g in v))
+# Generic polygon traversal through GeoInterface traits, so polygon input is not
+# tied to GeometryBasics: any GI Polygon/MultiPolygon, GeometryCollection,
+# Feature/FeatureCollection, or nested vector/tuple of geometries works. Returns
+# a flat vector of polygons (as GI geometries; `_poly_rings` reads them through
+# GI). GeometryOps' traversal/apply machinery is the natural extension point;
+# this keeps the group/source index that colour replication needs.
+function _collect_polys(geom)
+    if geom isa AbstractVector || geom isa Tuple
+        return reduce(vcat, (_collect_polys(g) for g in geom); init = Any[])
+    end
+    t = GI.trait(geom)
+    t === nothing && return Any[]
+    if t isa GI.PolygonTrait
+        return Any[geom]
+    elseif t isa GI.MultiPolygonTrait
+        return Any[GI.getgeom(t, geom, i) for i in 1:GI.ngeom(t, geom)]
+    elseif t isa GI.GeometryCollectionTrait
+        return reduce(vcat, (_collect_polys(g) for g in geom); init = Any[])
+    elseif t isa GI.FeatureTrait
+        return _collect_polys(GI.geometry(geom))
+    elseif t isa GI.FeatureCollectionTrait
+        return reduce(vcat, (_collect_polys(g) for g in geom); init = Any[])
+    end
+    return Any[]
+end
+
+# True for GI GeometryCollection/FeatureCollection (each element is a separate
+# user geometry for colour replication), false for single geometries/features.
+function _is_geom_collection(geom)
+    t = GI.trait(geom)
+    return t isa GI.GeometryCollectionTrait || t isa GI.FeatureCollectionTrait
+end
 
 # project closure for the resampler / scale, from a Proj transform (lon,lat) -> (x,y)
 # project closure (lon,lat)->(x,y); error-safe (PROJ throws on out-of-domain lat/lon → NaN),

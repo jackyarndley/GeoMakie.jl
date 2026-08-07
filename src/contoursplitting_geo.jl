@@ -131,10 +131,8 @@ end
 # colour vectors (one colour per user polygon/MultiPolygon) be replicated onto every piece
 # even when `_collect_polys` expands MultiPolygon components.
 function _user_polys(geom)
-    if geom isa GeometryBasics.Polygon || geom isa GeometryBasics.MultiPolygon
-        return Tuple{Int, GeometryBasics.Polygon{2, Float32}}[(1, p) for p in _collect_polys(geom)]
-    elseif geom isa AbstractVector
-        pairs = Tuple{Int, GeometryBasics.Polygon{2, Float32}}[]
+    if geom isa AbstractVector || geom isa Tuple || _is_geom_collection(geom)
+        pairs = Tuple{Int, Any}[]
         for (k, g) in enumerate(geom)
             for p in _collect_polys(g)
                 push!(pairs, (k, p))
@@ -142,7 +140,7 @@ function _user_polys(geom)
         end
         return pairs
     else
-        return Tuple{Int, GeometryBasics.Polygon{2, Float32}}[(1, p) for p in _collect_polys(geom)]
+        return Tuple{Int, Any}[(1, p) for p in _collect_polys(geom)]
     end
 end
 
